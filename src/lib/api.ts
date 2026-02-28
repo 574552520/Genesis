@@ -1,6 +1,19 @@
 import { supabase } from "./supabase";
 import type { CreditTier, GenerationJob, GenerationRecord, ImageModel, UserProfile } from "../types";
 
+const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() ?? "";
+const apiBaseNormalized = apiBase.replace(/\/+$/, "");
+
+function resolveApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) {
+    return path;
+  }
+  if (path.startsWith("/api/") && apiBaseNormalized) {
+    return `${apiBaseNormalized}${path}`;
+  }
+  return path;
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   const {
     data: { session },
@@ -17,7 +30,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = await authHeaders();
-  const response = await fetch(path, {
+  const response = await fetch(resolveApiUrl(path), {
     ...init,
     headers: {
       ...headers,
