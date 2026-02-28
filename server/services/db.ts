@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { GenerationJobRow, ImageModel, UserProfile } from "../types";
+import type { GenerationJobRow, ImageModel, UserProfile } from "../types.js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;

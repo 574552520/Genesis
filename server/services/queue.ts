@@ -1,7 +1,7 @@
-import { generateImageBuffer } from "./gemini";
-import { setJobFailedAndRefund, setJobProcessing, setJobSucceeded } from "./db";
-import { uploadGeneratedImage } from "./storage";
-import type { QueueJobPayload } from "../types";
+import { generateImageBuffer } from "./gemini.js";
+import { setJobFailedAndRefund, setJobProcessing, setJobSucceeded } from "./db.js";
+import { uploadGeneratedImage } from "./storage.js";
+import type { QueueJobPayload } from "../types.js";
 
 const queue: QueueJobPayload[] = [];
 let processing = false;

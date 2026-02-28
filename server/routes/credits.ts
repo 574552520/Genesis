@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { rechargeCredits } from "../services/db";
+import { rechargeCredits } from "../services/db.js";
 
 const router = Router();
 

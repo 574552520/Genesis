@@ -1,4 +1,4 @@
-import { adminClient, storageBucket } from "./db";
+import { adminClient, storageBucket } from "./db.js";
 
 function extensionForMimeType(mimeType: string): string {
   if (mimeType === "image/png") return "png";

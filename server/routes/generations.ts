@@ -5,10 +5,10 @@ import {
   deleteJobForUser,
   getJobByIdForUser,
   listJobsForUser,
-} from "../services/db";
-import { enqueueGenerationJob } from "../services/queue";
-import { deleteGeneratedImage } from "../services/storage";
-import type { ImageModel } from "../types";
+} from "../services/db.js";
+import { enqueueGenerationJob } from "../services/queue.js";
+import { deleteGeneratedImage } from "../services/storage.js";
+import type { ImageModel } from "../types.js";
 
 const router = Router();
 const validModels: ImageModel[] = ["pro", "v2"];

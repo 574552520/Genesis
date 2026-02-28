@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import { authClient } from "../services/db";
+import { authClient } from "../services/db.js";
 
 declare global {
   namespace Express {

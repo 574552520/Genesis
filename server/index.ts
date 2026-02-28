@@ -1,11 +1,11 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
-import { requireAuth } from "./middleware/auth";
-import creditsRouter from "./routes/credits";
-import generationsRouter from "./routes/generations";
-import meRouter from "./routes/me";
-import { queueSnapshot } from "./services/queue";
+import { requireAuth } from "./middleware/auth.js";
+import creditsRouter from "./routes/credits.js";
+import generationsRouter from "./routes/generations.js";
+import meRouter from "./routes/me.js";
+import { queueSnapshot } from "./services/queue.js";
 
 const app = express();
 const port = Number(process.env.PORT ?? 8787);

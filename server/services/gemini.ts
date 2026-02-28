@@ -1,4 +1,4 @@
-import type { ImageModel } from "../types";
+import type { ImageModel } from "../types.js";
 
 export async function generateImageBuffer(params: {
   prompt: string;
