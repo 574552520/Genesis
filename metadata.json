@@ -1,0 +1,5 @@
+{
+  "name": "Genesis协议",
+  "description": "基于 Gemini 的高级图像生成平台，支持多图参考与参数调节。",
+  "requestFramePermissions": []
+}
