@@ -1,6 +1,24 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Hexagon } from "lucide-react";
+import { api } from "../lib/api";
 import { supabase } from "../lib/supabase";
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (container: HTMLElement, options: {
+        sitekey: string;
+        callback: (token: string) => void;
+        "expired-callback"?: () => void;
+        "error-callback"?: () => void;
+      }) => string;
+      reset: (widgetId?: string) => void;
+      remove: (widgetId?: string) => void;
+    };
+  }
+}
+
+const turnstileSiteKey = (import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined)?.trim() ?? "";
 
 export default function Auth({ onBack }: { onBack: () => void }) {
   const [isLogin, setIsLogin] = useState(true);
@@ -9,6 +27,75 @@ export default function Auth({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+
+  const captchaContainerRef = useRef<HTMLDivElement | null>(null);
+  const captchaWidgetIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!turnstileSiteKey) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const renderWidget = () => {
+      if (cancelled || !captchaContainerRef.current || !window.turnstile) {
+        return;
+      }
+
+      if (captchaWidgetIdRef.current) {
+        window.turnstile.remove(captchaWidgetIdRef.current);
+        captchaWidgetIdRef.current = null;
+      }
+
+      captchaWidgetIdRef.current = window.turnstile.render(captchaContainerRef.current, {
+        sitekey: turnstileSiteKey,
+        callback: (token: string) => {
+          setCaptchaToken(token);
+          setError(null);
+        },
+        "expired-callback": () => {
+          setCaptchaToken(null);
+        },
+        "error-callback": () => {
+          setCaptchaToken(null);
+          setError("Captcha check failed. Please try again.");
+        },
+      });
+    };
+
+    const existing = document.querySelector<HTMLScriptElement>('script[data-turnstile="true"]');
+    if (existing) {
+      renderWidget();
+    } else {
+      const script = document.createElement("script");
+      script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+      script.async = true;
+      script.defer = true;
+      script.dataset.turnstile = "true";
+      script.onload = renderWidget;
+      script.onerror = () => {
+        setError("Failed to load captcha widget. Please refresh the page.");
+      };
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      cancelled = true;
+      if (window.turnstile && captchaWidgetIdRef.current) {
+        window.turnstile.remove(captchaWidgetIdRef.current);
+      }
+      captchaWidgetIdRef.current = null;
+    };
+  }, []);
+
+  const resetCaptcha = () => {
+    setCaptchaToken(null);
+    if (window.turnstile && captchaWidgetIdRef.current) {
+      window.turnstile.reset(captchaWidgetIdRef.current);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -16,6 +103,13 @@ export default function Auth({ onBack }: { onBack: () => void }) {
     setError(null);
     setMessage(null);
     try {
+      if (turnstileSiteKey) {
+        if (!captchaToken) {
+          throw new Error("Please complete the captcha challenge.");
+        }
+        await api.verifyTurnstile(captchaToken);
+      }
+
       if (isLogin) {
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email: email.trim(),
@@ -34,8 +128,15 @@ export default function Auth({ onBack }: { onBack: () => void }) {
           setMessage("Registration complete.");
         }
       }
+
+      if (turnstileSiteKey) {
+        resetCaptcha();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
+      if (turnstileSiteKey) {
+        resetCaptcha();
+      }
     } finally {
       setLoading(false);
     }
@@ -88,6 +189,13 @@ export default function Auth({ onBack }: { onBack: () => void }) {
             />
           </div>
 
+          {turnstileSiteKey && (
+            <div>
+              <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">Captcha</label>
+              <div ref={captchaContainerRef} className="min-h-[68px]" />
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={loading}
@@ -111,7 +219,14 @@ export default function Auth({ onBack }: { onBack: () => void }) {
 
         <div className="mt-8 text-center">
           <button
-            onClick={() => setIsLogin((v) => !v)}
+            onClick={() => {
+              setIsLogin((v) => !v);
+              setError(null);
+              setMessage(null);
+              if (turnstileSiteKey) {
+                resetCaptcha();
+              }
+            }}
             className="font-mono text-xs uppercase opacity-50 hover:opacity-100 transition-opacity"
           >
             {isLogin ? "Need an account? Sign up" : "Already have an account? Sign in"}
