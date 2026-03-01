@@ -26,7 +26,7 @@ export default function ImageModal({ url, prompt, onClose }: ImageModalProps) {
       >
         <img
           src={url}
-          alt={prompt || "Enlarged view"}
+          alt={prompt || "大图预览"}
           className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-white/10"
           referrerPolicy="no-referrer"
         />
@@ -42,7 +42,7 @@ export default function ImageModal({ url, prompt, onClose }: ImageModalProps) {
           download="genesis-synthesis.png"
           className="mt-6 flex items-center gap-2 px-6 py-3 bg-white text-[#647B8C] rounded-full font-mono text-xs uppercase hover:bg-opacity-90 transition-colors shadow-lg"
         >
-          <Download className="w-4 h-4" /> Download image
+          <Download className="w-4 h-4" /> 下载图片
         </a>
       </div>
     </div>

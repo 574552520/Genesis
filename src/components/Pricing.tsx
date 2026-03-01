@@ -14,27 +14,27 @@ const TIERS: Array<{
 }> = [
   {
     key: "standard",
-    name: "Standard",
+    name: "标准版",
     credits: 50,
     price: "$29",
-    features: ["1K resolution", "Standard queue", "1 reference image"],
+    features: ["1K 分辨率", "标准队列", "1 张参考图"],
     color: "border-white/20",
   },
   {
     key: "pro",
-    name: "Pro",
+    name: "专业版",
     credits: 200,
     price: "$99",
-    features: ["2K resolution", "Priority queue", "Up to 6 reference images", "Commercial usage"],
+    features: ["2K 分辨率", "优先队列", "最多 6 张参考图", "可商用"],
     color: "border-white/60 bg-white/5",
     popular: true,
   },
   {
     key: "enterprise",
-    name: "Enterprise",
+    name: "企业版",
     credits: 1000,
     price: "$399",
-    features: ["4K resolution", "Fast generation", "Unlimited references", "API access"],
+    features: ["4K 分辨率", "极速生成", "无限参考图", "API 访问"],
     color: "border-[#D1DCE5]",
   },
 ];
@@ -54,10 +54,10 @@ export default function Pricing({
     setError(null);
     try {
       const result = await api.recharge(tier);
-      setMessage(`Recharge successful: +${result.added} credits`);
+      setMessage(`充值成功：+${result.added} 点`);
       await onRechargeDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Recharge failed");
+      setError(err instanceof Error ? err.message : "充值失败");
     } finally {
       setLoadingTier(null);
     }
@@ -66,7 +66,7 @@ export default function Pricing({
   return (
     <div className="p-6 md:p-10 w-full">
       <header className="mb-12 text-center">
-        <h1 className="font-display text-4xl md:text-5xl uppercase mb-2">Get credits</h1>
+        <h1 className="font-display text-4xl md:text-5xl uppercase mb-2">获取点数</h1>
         <p className="font-mono text-xs opacity-60 uppercase tracking-widest">
           [ SYSTEM RESOURCES ]
         </p>
@@ -80,14 +80,14 @@ export default function Pricing({
           >
             {tier.popular && (
               <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-[#647B8C] font-mono text-[10px] uppercase px-3 py-1 rounded-full font-bold tracking-widest">
-                Recommended
+                推荐
               </div>
             )}
 
             <h3 className="font-display text-2xl uppercase mb-2">{tier.name}</h3>
             <div className="flex items-baseline gap-2 mb-6">
               <span className="font-display text-5xl">{tier.price}</span>
-              <span className="font-mono text-xs opacity-50 uppercase">/ {tier.credits} CRD</span>
+              <span className="font-mono text-xs opacity-50 uppercase">/ {tier.credits} 点</span>
             </div>
 
             <ul className="space-y-4 mb-8 flex-1">
@@ -104,7 +104,7 @@ export default function Pricing({
               disabled={loadingTier === tier.key}
               className={`w-full py-4 rounded-xl font-mono text-sm uppercase transition-colors disabled:opacity-60 ${tier.popular ? "bg-white text-[#647B8C] hover:bg-opacity-90" : "border border-white/30 hover:bg-white/10"}`}
             >
-              {loadingTier === tier.key ? "Processing..." : "Choose this tier"}
+              {loadingTier === tier.key ? "处理中..." : "选择此套餐"}
             </button>
           </div>
         ))}
