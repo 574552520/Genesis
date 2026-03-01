@@ -72,11 +72,13 @@ Set environment variables:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_API_BASE_URL="https://<your-render-domain>"`
+- `VITE_TURNSTILE_SITE_KEY` (optional, leave empty to disable captcha UI)
 
 Then redeploy Vercel production.
 
 ## 5) API overview
 
+- `POST /api/security/turnstile/verify`
 - `GET /api/me`
 - `POST /api/generations`
 - `GET /api/generations/jobs/:jobId`

@@ -28,8 +28,13 @@ async function authHeaders(): Promise<Record<string, string>> {
   };
 }
 
-async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = await authHeaders();
+async function apiRequest<T>(
+  path: string,
+  init?: RequestInit,
+  options?: { requireAuth?: boolean },
+): Promise<T> {
+  const requireAuth = options?.requireAuth ?? true;
+  const headers = requireAuth ? await authHeaders() : {};
   const response = await fetch(resolveApiUrl(path), {
     ...init,
     headers: {
@@ -47,6 +52,17 @@ async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async verifyTurnstile(token: string): Promise<{ success: boolean }> {
+    return apiRequest(
+      "/api/security/turnstile/verify",
+      {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      },
+      { requireAuth: false },
+    );
+  },
+
   async getMe(): Promise<UserProfile> {
     const data = await apiRequest<{ profile: UserProfile }>("/api/me");
     return data.profile;

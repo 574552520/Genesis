@@ -5,6 +5,7 @@ import { requireAuth } from "./middleware/auth.js";
 import creditsRouter from "./routes/credits.js";
 import generationsRouter from "./routes/generations.js";
 import meRouter from "./routes/me.js";
+import securityRouter from "./routes/security.js";
 import { queueSnapshot } from "./services/queue.js";
 
 const app = express();
@@ -26,6 +27,7 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+app.use("/api/security", securityRouter);
 app.use("/api/me", requireAuth, meRouter);
 app.use("/api/credits", requireAuth, creditsRouter);
 app.use("/api/generations", requireAuth, generationsRouter);
