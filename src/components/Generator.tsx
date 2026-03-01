@@ -82,6 +82,34 @@ function normalizePrompt(prompt: string): string {
   return prompt.trim();
 }
 
+function isSameLocalDay(iso: string, now = new Date()): boolean {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return false;
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+}
+
+function historyItemToQueueItem(item: GenerationRecord): GenerationQueueItem {
+  return {
+    localId: `history-${item.id}`,
+    jobId: item.id,
+    promptSnapshot: item.prompt,
+    referenceImages: [],
+    createdAt: item.createdAt,
+    status: item.status,
+    imageUrl: item.imageUrl,
+    imageRenderFailed: false,
+    error: item.error,
+    syncWarning: null,
+    aspectRatio: item.aspectRatio,
+    imageSize: item.imageSize,
+    model: item.model,
+  };
+}
+
 export default function Generator({
   isVisible,
   credits,
@@ -172,6 +200,25 @@ export default function Generator({
     }
   }, [aspectRatio, aspectRatioOptions]);
 
+  useEffect(() => {
+    const restoreTodayQueue = async () => {
+      try {
+        const history = await api.listHistory(120, 0);
+        if (!mountedRef.current) return;
+
+        const todayItems = history.items
+          .filter((item) => isSameLocalDay(item.createdAt))
+          .map(historyItemToQueueItem);
+
+        setQueueItems(todayItems);
+      } catch {
+        // Keep empty queue if history is temporarily unavailable.
+      }
+    };
+
+    void restoreTodayQueue();
+  }, []);
+
   const fileToDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -220,11 +267,41 @@ export default function Generator({
     e.target.value = "";
   };
 
+  const appendReferenceImageUrl = useCallback((url: string) => {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+
+    if (images.length >= 6) {
+      setGlobalError("最多只支持 6 张参考图片。");
+      return;
+    }
+
+    if (images.includes(trimmed)) {
+      setGlobalError("该参考图已添加。");
+      return;
+    }
+
+    setGlobalError(null);
+    setImages((prev) => [...prev, trimmed].slice(0, 6));
+  }, [images]);
+
   const handleDropUpload = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragOverUpload(false);
-    if (!e.dataTransfer.files?.length) return;
-    void appendImagesFromFiles(Array.from(e.dataTransfer.files));
+
+    if (e.dataTransfer.files?.length) {
+      void appendImagesFromFiles(Array.from(e.dataTransfer.files));
+      return;
+    }
+
+    const urlPayload =
+      e.dataTransfer.getData("application/x-genesis-image-url") ||
+      e.dataTransfer.getData("text/uri-list") ||
+      e.dataTransfer.getData("text/plain");
+
+    if (urlPayload && /^https?:\/\//.test(urlPayload.trim())) {
+      appendReferenceImageUrl(urlPayload);
+    }
   };
 
   const removeImage = (index: number) => {
@@ -569,6 +646,13 @@ export default function Generator({
     }, delay);
   };
 
+  const handleGeneratedImageDragStart = (e: React.DragEvent<HTMLImageElement>, imageUrl: string) => {
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("application/x-genesis-image-url", imageUrl);
+    e.dataTransfer.setData("text/uri-list", imageUrl);
+    e.dataTransfer.setData("text/plain", imageUrl);
+  };
+
   return (
     <div
       aria-hidden={!isVisible}
@@ -606,6 +690,7 @@ export default function Generator({
               </label>
               <span className="font-mono text-[10px] opacity-50">{images.length}/6</span>
             </div>
+            <p className="font-mono text-[10px] opacity-60">支持拖拽上传，或将下方已生成图片直接拖入作为参考图</p>
 
             <div
               className={`grid grid-cols-3 gap-2 rounded-lg border border-dashed p-2 transition-colors ${
@@ -802,6 +887,8 @@ export default function Generator({
                                   alt="已生成图片"
                                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100"
                                   referrerPolicy="no-referrer"
+                                  draggable
+                                  onDragStart={(e) => handleGeneratedImageDragStart(e, item.imageUrl)}
                                   onError={() => handleImageRenderError(item)}
                                 />
                                 <button
