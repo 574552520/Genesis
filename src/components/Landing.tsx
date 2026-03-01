@@ -28,7 +28,7 @@ export default function Landing({
           <Hexagon className="w-6 h-6" />
           GNSIS
         </div>
-        <div className="hidden md:flex items-center gap-8 font-mono text-sm tracking-widest uppercase opacity-80">
+        <div className="hidden md:flex items-center gap-8 font-mono text-xs tracking-widest uppercase opacity-70">
           <button className="hover:opacity-100 transition-opacity">目录</button>
           <button className="hover:opacity-100 transition-opacity">协议</button>
           <button className="hover:opacity-100 transition-opacity">关于</button>
@@ -109,7 +109,7 @@ export default function Landing({
             <br />
             像素化创作
           </h3>
-          <div className="font-mono text-xs text-right opacity-60 uppercase max-w-xs hidden md:block">
+          <div className="font-mono text-[10px] text-right opacity-50 uppercase max-w-xs hidden md:block">
             GNSIS 因需求而生。[ 协议：ALTITUDE 001.01 ]
           </div>
         </div>
