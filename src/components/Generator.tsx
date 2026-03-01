@@ -84,7 +84,7 @@ export default function Generator({
   onGenerationDone,
 }: {
   isVisible?: boolean;
-  credits: number;
+  credits: number | null;
   onGenerationDone: () => Promise<void>;
 }) {
   const [prompt, setPrompt] = useState("");
@@ -107,7 +107,7 @@ export default function Generator({
   const haltedUrlPollingRef = useRef<Set<string>>(new Set());
   const imageLoadRetriesRef = useRef<Map<string, number>>(new Map());
   const imageReloadInFlightRef = useRef<Set<string>>(new Set());
-  const lastCreditsRef = useRef(credits);
+  const lastCreditsRef = useRef<number | null>(credits);
 
   useEffect(() => {
     return () => {
@@ -123,17 +123,23 @@ export default function Generator({
 
   useEffect(() => {
     const previousCredits = lastCreditsRef.current;
-    if (credits !== previousCredits) {
+    if (typeof credits !== "number") {
+      lastCreditsRef.current = credits;
+      return;
+    }
+
+    if (typeof previousCredits === "number" && credits !== previousCredits) {
       const spent = previousCredits - credits;
       if (spent > 0) {
         setReservedCredits((prev) => Math.max(0, prev - spent));
       }
-      lastCreditsRef.current = credits;
     }
+
+    lastCreditsRef.current = credits;
   }, [credits]);
 
   const effectiveCredits = useMemo(
-    () => Math.max(0, credits - reservedCredits),
+    () => (typeof credits === "number" ? Math.max(0, credits - reservedCredits) : null),
     [credits, reservedCredits],
   );
 
@@ -428,6 +434,10 @@ export default function Generator({
   );
 
   const handleGenerate = () => {
+    if (effectiveCredits === null) {
+      setGlobalError("Credits are still loading. Please wait a moment.");
+      return;
+    }
     if (effectiveCredits < GENERATION_COST) {
       setGlobalError("Not enough credits. Please recharge before generating.");
       return;
@@ -446,6 +456,10 @@ export default function Generator({
   };
 
   const handleRetry = (item: GenerationQueueItem) => {
+    if (effectiveCredits === null) {
+      setGlobalError("Credits are still loading. Please wait a moment.");
+      return;
+    }
     if (effectiveCredits < GENERATION_COST) {
       setGlobalError("Not enough credits to retry this task.");
       return;
@@ -643,6 +657,7 @@ export default function Generator({
 
           <button
             onClick={handleGenerate}
+            disabled={effectiveCredits === null}
             className="w-full bg-white text-[#647B8C] font-mono text-sm uppercase py-4 rounded-xl hover:bg-opacity-90 transition-colors flex items-center justify-center gap-2 mt-8 shadow-[0_0_20px_rgba(255,255,255,0.2)] disabled:opacity-60"
           >
             {submittingCount > 0 ? (
@@ -658,7 +673,7 @@ export default function Generator({
           </button>
 
           <div className="font-mono text-[10px] opacity-60 uppercase tracking-widest">
-            Available now: {effectiveCredits} CRD
+            Available now: {effectiveCredits ?? "..."} CRD
           </div>
         </div>
 
