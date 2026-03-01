@@ -41,7 +41,11 @@ const IMAGE_RENDER_RETRY_MAX = 3;
 const IMAGE_RENDER_RETRY_DELAY_MS = 1200;
 const RECOVERY_HISTORY_LIMIT = 40;
 const RECOVERY_TIME_WINDOW_MS = 5 * 60 * 1000;
-const ASPECT_RATIO_PRESETS = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9", "9:21"];
+const COMMON_ASPECT_RATIO_PRESETS = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"] as const;
+const ASPECT_RATIO_PRESETS_BY_MODEL: Record<ImageModel, readonly string[]> = {
+  v2: [...COMMON_ASPECT_RATIO_PRESETS, "1:4", "4:1", "1:8", "8:1"],
+  pro: COMMON_ASPECT_RATIO_PRESETS,
+};
 
 function modelLabel(model: ImageModel): string {
   return model === "v2" ? "v2" : "Pro";
@@ -98,6 +102,7 @@ export default function Generator({
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [enlargedPrompt, setEnlargedPrompt] = useState<string | null>(null);
+  const [isDragOverUpload, setIsDragOverUpload] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
@@ -156,17 +161,70 @@ export default function Generator({
     [queueItems],
   );
 
+  const aspectRatioOptions = useMemo(
+    () => ASPECT_RATIO_PRESETS_BY_MODEL[model],
+    [model],
+  );
+
+  useEffect(() => {
+    if (!aspectRatioOptions.includes(aspectRatio)) {
+      setAspectRatio(aspectRatioOptions[0]);
+    }
+  }, [aspectRatio, aspectRatioOptions]);
+
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("读取图片失败，请重试。"));
+      reader.readAsDataURL(file);
+    });
+
+  const appendImagesFromFiles = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+
+      if (images.length >= 6) {
+        setGlobalError("最多只支持 6 张参考图片。");
+        return;
+      }
+
+      const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+      if (!imageFiles.length) {
+        setGlobalError("仅支持上传图片文件。");
+        return;
+      }
+
+      const remainingSlots = Math.max(0, 6 - images.length);
+      if (imageFiles.length > remainingSlots) {
+        setGlobalError(`最多只能再添加 ${remainingSlots} 张参考图。`);
+      } else {
+        setGlobalError(null);
+      }
+
+      const acceptedFiles = imageFiles.slice(0, remainingSlots);
+      try {
+        const encoded = await Promise.all(acceptedFiles.map((file) => fileToDataUrl(file)));
+        setImages((prev) => [...prev, ...encoded].slice(0, 6));
+      } catch (error) {
+        setGlobalError(error instanceof Error ? error.message : "读取图片失败，请重试。");
+      }
+    },
+    [images.length],
+  );
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
+    void appendImagesFromFiles(Array.from(files));
+    e.target.value = "";
+  };
 
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImages((prev) => [...prev, reader.result as string].slice(0, 6));
-      };
-      reader.readAsDataURL(file);
-    });
+  const handleDropUpload = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOverUpload(false);
+    if (!e.dataTransfer.files?.length) return;
+    void appendImagesFromFiles(Array.from(e.dataTransfer.files));
   };
 
   const removeImage = (index: number) => {
@@ -549,7 +607,17 @@ export default function Generator({
               <span className="font-mono text-[10px] opacity-50">{images.length}/6</span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div
+              className={`grid grid-cols-3 gap-2 rounded-lg border border-dashed p-2 transition-colors ${
+                isDragOverUpload ? "border-white/70 bg-white/10" : "border-white/10"
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOverUpload(true);
+              }}
+              onDragLeave={() => setIsDragOverUpload(false)}
+              onDrop={handleDropUpload}
+            >
               {images.map((img, i) => (
                 <div
                   key={i}
@@ -575,7 +643,7 @@ export default function Generator({
                   className="aspect-square rounded-lg border border-dashed border-white/30 flex flex-col items-center justify-center gap-2 hover:bg-white/5 transition-colors opacity-70 hover:opacity-100"
                 >
                   <Upload className="w-4 h-4" />
-                  <span className="font-mono text-[8px] uppercase">Upload</span>
+                  <span className="font-mono text-[8px] uppercase">点击或拖拽上传</span>
                 </button>
               )}
             </div>
@@ -592,11 +660,11 @@ export default function Generator({
           <div className="space-y-4 border-t border-white/10 pt-6">
             <div className="flex items-center gap-2 mb-4">
               <Settings2 className="w-4 h-4 opacity-70" />
-              <h3 className="font-mono text-xs uppercase tracking-widest">Generation settings</h3>
+              <h3 className="font-mono text-xs uppercase tracking-widest">生成设置</h3>
             </div>
 
             <div>
-              <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">Model</label>
+              <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">模型</label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setModel("v2")}
@@ -631,7 +699,7 @@ export default function Generator({
                   onChange={(e) => setAspectRatio(e.target.value)}
                   className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 font-mono text-xs focus:outline-none focus:border-white/50 appearance-none"
                 >
-                  {ASPECT_RATIO_PRESETS.map((ratio) => (
+                  {aspectRatioOptions.map((ratio) => (
                     <option key={ratio} value={ratio}>
                       {ratio}
                     </option>
