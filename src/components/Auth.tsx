@@ -60,7 +60,7 @@ export default function Auth({ onBack }: { onBack: () => void }) {
         },
         "error-callback": () => {
           setCaptchaToken(null);
-          setError("Captcha check failed. Please try again.");
+          setError("验证码校验失败，请重试。");
         },
       });
     };
@@ -76,7 +76,7 @@ export default function Auth({ onBack }: { onBack: () => void }) {
       script.dataset.turnstile = "true";
       script.onload = renderWidget;
       script.onerror = () => {
-        setError("Failed to load captcha widget. Please refresh the page.");
+        setError("验证码组件加载失败，请刷新页面后重试。");
       };
       document.head.appendChild(script);
     }
@@ -105,7 +105,7 @@ export default function Auth({ onBack }: { onBack: () => void }) {
     try {
       if (turnstileSiteKey) {
         if (!captchaToken) {
-          throw new Error("Please complete the captcha challenge.");
+          throw new Error("请先完成人机验证。");
         }
         await api.verifyTurnstile(captchaToken);
       }
@@ -120,12 +120,15 @@ export default function Auth({ onBack }: { onBack: () => void }) {
         const { error: signUpError, data } = await supabase.auth.signUp({
           email: email.trim(),
           password,
+          options: {
+            emailRedirectTo: window.location.origin,
+          },
         });
         if (signUpError) throw signUpError;
         if (!data.session) {
-          setMessage("Registration complete. Please verify your email before login.");
+          setMessage("注册成功，请先前往邮箱完成验证。");
         } else {
-          setMessage("Registration complete.");
+          setMessage("注册成功。");
         }
       }
 
@@ -133,7 +136,7 @@ export default function Auth({ onBack }: { onBack: () => void }) {
         resetCaptcha();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Authentication failed");
+      setError(err instanceof Error ? err.message : "认证失败，请稍后重试。");
       if (turnstileSiteKey) {
         resetCaptcha();
       }
@@ -148,7 +151,7 @@ export default function Auth({ onBack }: { onBack: () => void }) {
         onClick={onBack}
         className="absolute top-6 left-6 flex items-center gap-2 font-mono text-xs uppercase opacity-70 hover:opacity-100"
       >
-        <ArrowLeft className="w-4 h-4" /> Back
+        <ArrowLeft className="w-4 h-4" /> 返回
       </button>
 
       <div className="w-full max-w-md border border-white/20 bg-[#3A4A54]/30 backdrop-blur-md p-8 rounded-2xl">
@@ -157,27 +160,27 @@ export default function Auth({ onBack }: { onBack: () => void }) {
         </div>
 
         <h2 className="font-display text-4xl uppercase text-center mb-2">
-          {isLogin ? "Sign In" : "Sign Up"}
+          {isLogin ? "登录" : "注册"}
         </h2>
         <p className="font-mono text-xs text-center opacity-50 uppercase mb-8">
-          [ SYSTEM: {isLogin ? "AUTHENTICATION" : "REGISTRATION"} ]
+          [ SYSTEM: {isLogin ? "身份验证" : "注册流程"} ]
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">Email</label>
+            <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">邮箱</label>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-transparent border-b border-white/30 px-0 py-2 font-mono text-sm focus:outline-none focus:border-white transition-colors"
-              placeholder="your@email.com"
+              placeholder="请输入邮箱"
             />
           </div>
 
           <div>
-            <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">Password</label>
+            <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">密码</label>
             <input
               type="password"
               required
@@ -185,13 +188,13 @@ export default function Auth({ onBack }: { onBack: () => void }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-transparent border-b border-white/30 px-0 py-2 font-mono text-sm focus:outline-none focus:border-white transition-colors"
-              placeholder="Minimum 6 characters"
+              placeholder="至少 6 位字符"
             />
           </div>
 
           {turnstileSiteKey && (
             <div>
-              <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">Captcha</label>
+              <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">人机验证</label>
               <div ref={captchaContainerRef} className="min-h-[68px]" />
             </div>
           )}
@@ -201,7 +204,7 @@ export default function Auth({ onBack }: { onBack: () => void }) {
             disabled={loading}
             className="w-full bg-white text-[#647B8C] font-mono text-sm uppercase py-3 rounded-full hover:bg-opacity-90 transition-colors mt-4 disabled:opacity-60"
           >
-            {loading ? "Processing..." : isLogin ? "Enter System" : "Create Account"}
+            {loading ? "处理中..." : isLogin ? "进入系统" : "创建账号"}
           </button>
         </form>
 
@@ -229,7 +232,7 @@ export default function Auth({ onBack }: { onBack: () => void }) {
             }}
             className="font-mono text-xs uppercase opacity-50 hover:opacity-100 transition-opacity"
           >
-            {isLogin ? "Need an account? Sign up" : "Already have an account? Sign in"}
+            {isLogin ? "还没有账号？去注册" : "已有账号？去登录"}
           </button>
         </div>
       </div>

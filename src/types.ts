@@ -7,6 +7,7 @@ export interface UserProfile {
   userId: string;
   email: string;
   credits: number;
+  creditsExpiresAt: string | null;
   createdAt: string;
 }
 

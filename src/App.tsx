@@ -23,6 +23,21 @@ export default function App() {
     let mounted = true;
 
     const init = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const tokenHash = params.get("token_hash");
+      const rawType = params.get("type");
+
+      if (tokenHash && rawType) {
+        const otpTypes = ["signup", "invite", "recovery", "email_change"] as const;
+        if (otpTypes.includes(rawType as (typeof otpTypes)[number])) {
+          await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: rawType as (typeof otpTypes)[number],
+          });
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+
       const {
         data: { session: initialSession },
       } = await supabase.auth.getSession();
@@ -67,7 +82,7 @@ export default function App() {
   if (bootstrapping) {
     return (
       <div className="min-h-screen bg-[#647B8C] text-white font-sans flex items-center justify-center">
-        <div className="font-mono text-xs uppercase opacity-70">Loading session...</div>
+        <div className="font-mono text-xs uppercase opacity-70">正在加载会话...</div>
       </div>
     );
   }

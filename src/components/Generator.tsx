@@ -31,7 +31,10 @@ interface GenerationQueueItem {
   model: ImageModel;
 }
 
-const GENERATION_COST = 50;
+const GENERATION_COST_BY_MODEL_AND_SIZE: Record<ImageModel, Record<string, number>> = {
+  v2: { "1K": 70, "2K": 80, "4K": 130 },
+  pro: { "1K": 90, "2K": 100, "4K": 160 },
+};
 const POLL_INTERVAL_MS = 2000;
 const SUBMIT_TIMEOUT_MS = 15000;
 const MAX_SYNC_RETRY_BEFORE_WARNING = 3;
@@ -41,7 +44,11 @@ const IMAGE_RENDER_RETRY_MAX = 3;
 const IMAGE_RENDER_RETRY_DELAY_MS = 1200;
 const RECOVERY_HISTORY_LIMIT = 40;
 const RECOVERY_TIME_WINDOW_MS = 5 * 60 * 1000;
-const ASPECT_RATIO_PRESETS = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3", "21:9", "9:21"];
+const COMMON_ASPECT_RATIO_PRESETS = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"] as const;
+const ASPECT_RATIO_PRESETS_BY_MODEL: Record<ImageModel, readonly string[]> = {
+  v2: [...COMMON_ASPECT_RATIO_PRESETS, "1:4", "4:1", "1:8", "8:1"],
+  pro: COMMON_ASPECT_RATIO_PRESETS,
+};
 
 function modelLabel(model: ImageModel): string {
   return model === "v2" ? "v2" : "Pro";
@@ -63,11 +70,11 @@ function statusBadgeClass(status: QueueItemStatus): string {
 }
 
 function statusLabel(status: QueueItemStatus): string {
-  if (status === "submitting") return "Submitting";
-  if (status === "queued") return "Queued";
-  if (status === "processing") return "Processing";
-  if (status === "succeeded") return "Succeeded";
-  return "Failed";
+  if (status === "submitting") return "提交中";
+  if (status === "queued") return "排队中";
+  if (status === "processing") return "处理中";
+  if (status === "succeeded") return "已完成";
+  return "失败";
 }
 
 function isTerminal(status: QueueItemStatus): boolean {
@@ -76,6 +83,39 @@ function isTerminal(status: QueueItemStatus): boolean {
 
 function normalizePrompt(prompt: string): string {
   return prompt.trim();
+}
+
+
+function getGenerationCost(model: ImageModel, imageSize: string): number {
+  return GENERATION_COST_BY_MODEL_AND_SIZE[model]?.[imageSize] ?? GENERATION_COST_BY_MODEL_AND_SIZE[model]["1K"];
+}
+
+function isSameLocalDay(iso: string, now = new Date()): boolean {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return false;
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  );
+}
+
+function historyItemToQueueItem(item: GenerationRecord): GenerationQueueItem {
+  return {
+    localId: `history-${item.id}`,
+    jobId: item.id,
+    promptSnapshot: item.prompt,
+    referenceImages: [],
+    createdAt: item.createdAt,
+    status: item.status,
+    imageUrl: item.imageUrl,
+    imageRenderFailed: false,
+    error: item.error,
+    syncWarning: null,
+    aspectRatio: item.aspectRatio,
+    imageSize: item.imageSize,
+    model: item.model,
+  };
 }
 
 export default function Generator({
@@ -98,6 +138,7 @@ export default function Generator({
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [enlargedPrompt, setEnlargedPrompt] = useState<string | null>(null);
+  const [isDragOverUpload, setIsDragOverUpload] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
@@ -156,17 +197,119 @@ export default function Generator({
     [queueItems],
   );
 
+  const aspectRatioOptions = useMemo(
+    () => ASPECT_RATIO_PRESETS_BY_MODEL[model],
+    [model],
+  );
+
+  useEffect(() => {
+    if (!aspectRatioOptions.includes(aspectRatio)) {
+      setAspectRatio(aspectRatioOptions[0]);
+    }
+  }, [aspectRatio, aspectRatioOptions]);
+
+  useEffect(() => {
+    const restoreTodayQueue = async () => {
+      try {
+        const history = await api.listHistory(120, 0);
+        if (!mountedRef.current) return;
+
+        const todayItems = history.items
+          .filter((item) => isSameLocalDay(item.createdAt))
+          .map(historyItemToQueueItem);
+
+        setQueueItems(todayItems);
+      } catch {
+        // Keep empty queue if history is temporarily unavailable.
+      }
+    };
+
+    void restoreTodayQueue();
+  }, []);
+
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("读取图片失败，请重试。"));
+      reader.readAsDataURL(file);
+    });
+
+  const appendImagesFromFiles = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+
+      if (images.length >= 6) {
+        setGlobalError("最多只支持 6 张参考图片。");
+        return;
+      }
+
+      const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+      if (!imageFiles.length) {
+        setGlobalError("仅支持上传图片文件。");
+        return;
+      }
+
+      const remainingSlots = Math.max(0, 6 - images.length);
+      if (imageFiles.length > remainingSlots) {
+        setGlobalError(`最多只能再添加 ${remainingSlots} 张参考图。`);
+      } else {
+        setGlobalError(null);
+      }
+
+      const acceptedFiles = imageFiles.slice(0, remainingSlots);
+      try {
+        const encoded = await Promise.all(acceptedFiles.map((file) => fileToDataUrl(file)));
+        setImages((prev) => [...prev, ...encoded].slice(0, 6));
+      } catch (error) {
+        setGlobalError(error instanceof Error ? error.message : "读取图片失败，请重试。");
+      }
+    },
+    [images.length],
+  );
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
+    void appendImagesFromFiles(Array.from(files));
+    e.target.value = "";
+  };
 
-    Array.from(files).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImages((prev) => [...prev, reader.result as string].slice(0, 6));
-      };
-      reader.readAsDataURL(file);
-    });
+  const appendReferenceImageUrl = useCallback((url: string) => {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+
+    if (images.length >= 6) {
+      setGlobalError("最多只支持 6 张参考图片。");
+      return;
+    }
+
+    if (images.includes(trimmed)) {
+      setGlobalError("该参考图已添加。");
+      return;
+    }
+
+    setGlobalError(null);
+    setImages((prev) => [...prev, trimmed].slice(0, 6));
+  }, [images]);
+
+  const handleDropUpload = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOverUpload(false);
+
+    if (e.dataTransfer.files?.length) {
+      void appendImagesFromFiles(Array.from(e.dataTransfer.files));
+      return;
+    }
+
+    const urlPayload =
+      e.dataTransfer.getData("application/x-genesis-image-url") ||
+      e.dataTransfer.getData("text/uri-list") ||
+      e.dataTransfer.getData("text/plain");
+
+    if (urlPayload && /^https?:\/\//.test(urlPayload.trim())) {
+      appendReferenceImageUrl(urlPayload);
+    }
   };
 
   const removeImage = (index: number) => {
@@ -190,9 +333,9 @@ export default function Generator({
           if (pendingCount >= URL_PENDING_MAX_RETRY) {
             haltedUrlPollingRef.current.add(localId);
             successWithoutImageWarning =
-              "Image URL still unavailable. Check history or click retry on this card.";
+              "图片地址仍不可用，请查看历史记录或点击此卡片重试。";
           } else if (pendingCount >= URL_PENDING_WARNING_THRESHOLD) {
-            successWithoutImageWarning = "Image URL delayed, still retrying.";
+            successWithoutImageWarning = "图片地址返回较慢，正在继续重试。";
           }
         } else {
           urlPendingCountsRef.current.delete(jobId);
@@ -211,7 +354,7 @@ export default function Generator({
               status: next.status,
               imageUrl: next.imageUrl ?? item.imageUrl,
               imageRenderFailed: next.imageUrl ? false : item.imageRenderFailed,
-              error: next.status === "failed" ? (next.error ?? "Generation failed") : item.error,
+              error: next.status === "failed" ? (next.error ?? "生成失败") : item.error,
               syncWarning:
                 next.status === "succeeded" && !next.imageUrl
                   ? successWithoutImageWarning
@@ -233,11 +376,11 @@ export default function Generator({
         const retries = (failureCountsRef.current.get(jobId) ?? 0) + 1;
         failureCountsRef.current.set(jobId, retries);
         if (retries >= MAX_SYNC_RETRY_BEFORE_WARNING) {
-          const message = error instanceof Error ? error.message : "Unknown status sync error";
+          const message = error instanceof Error ? error.message : "状态同步异常";
           setQueueItems((prev) =>
             prev.map((item) =>
               item.localId === localId
-                ? { ...item, syncWarning: `Status sync delayed: ${message}. Retrying...` }
+                ? { ...item, syncWarning: `状态同步延迟：${message}，正在重试...` }
                 : item,
             ),
           );
@@ -275,6 +418,8 @@ export default function Generator({
     return () => window.clearInterval(timer);
   }, [queueItems, pollSingleJob]);
 
+  const currentGenerationCost = useMemo(() => getGenerationCost(model, size), [model, size]);
+
   const submitTask = useCallback(
     async (input: {
       prompt: string;
@@ -302,7 +447,8 @@ export default function Generator({
 
       setQueueItems((prev) => [optimisticItem, ...prev]);
       setSubmittingCount((prev) => prev + 1);
-      setReservedCredits((prev) => prev + GENERATION_COST);
+      const taskCost = getGenerationCost(input.model, input.imageSize);
+      setReservedCredits((prev) => prev + taskCost);
       setGlobalError(null);
 
       try {
@@ -326,7 +472,7 @@ export default function Generator({
         try {
           await onGenerationDone();
           if (mountedRef.current) {
-            setReservedCredits((prev) => Math.max(0, prev - GENERATION_COST));
+            setReservedCredits((prev) => Math.max(0, prev - taskCost));
           }
         } catch {
           // Keep reservation when profile sync fails so local validation remains safe.
@@ -383,7 +529,7 @@ export default function Generator({
                     imageRenderFailed: false,
                     error: recovered.error,
                     createdAt: recovered.createdAt,
-                    syncWarning: "Recovered from history after submit response interruption.",
+                    syncWarning: "提交响应中断，已从历史记录恢复任务。",
                   }
                 : item,
             ),
@@ -395,7 +541,7 @@ export default function Generator({
             try {
               await onGenerationDone();
               if (mountedRef.current) {
-                setReservedCredits((prev) => Math.max(0, prev - GENERATION_COST));
+                setReservedCredits((prev) => Math.max(0, prev - taskCost));
               }
             } catch {
               // Keep reservation when profile sync fails so local validation remains safe.
@@ -404,7 +550,7 @@ export default function Generator({
           return;
         }
 
-        const message = error instanceof Error ? error.message : "Failed to queue generation";
+        const message = error instanceof Error ? error.message : "加入生成队列失败";
         setQueueItems((prev) =>
           prev.map((item) =>
             item.localId === localId
@@ -416,7 +562,7 @@ export default function Generator({
               : item,
           ),
         );
-        setReservedCredits((prev) => Math.max(0, prev - GENERATION_COST));
+        setReservedCredits((prev) => Math.max(0, prev - taskCost));
         setGlobalError(message);
 
         try {
@@ -435,15 +581,15 @@ export default function Generator({
 
   const handleGenerate = () => {
     if (effectiveCredits === null) {
-      setGlobalError("Credits are still loading. Please wait a moment.");
+      setGlobalError("点数仍在加载中，请稍候。");
       return;
     }
-    if (effectiveCredits < GENERATION_COST) {
-      setGlobalError("Not enough credits. Please recharge before generating.");
+    if (effectiveCredits < currentGenerationCost) {
+      setGlobalError(`点数不足，当前设置需要 ${currentGenerationCost} 积分。`);
       return;
     }
     if (!prompt && images.length === 0) {
-      setGlobalError("Please provide a prompt or at least one reference image.");
+      setGlobalError("请填写提示词，或至少上传一张参考图。");
       return;
     }
     void submitTask({
@@ -457,11 +603,12 @@ export default function Generator({
 
   const handleRetry = (item: GenerationQueueItem) => {
     if (effectiveCredits === null) {
-      setGlobalError("Credits are still loading. Please wait a moment.");
+      setGlobalError("点数仍在加载中，请稍候。");
       return;
     }
-    if (effectiveCredits < GENERATION_COST) {
-      setGlobalError("Not enough credits to retry this task.");
+    const retryCost = getGenerationCost(item.model, item.imageSize);
+    if (effectiveCredits < retryCost) {
+      setGlobalError(`点数不足，重试该任务需要 ${retryCost} 积分。`);
       return;
     }
     void submitTask({
@@ -487,8 +634,8 @@ export default function Generator({
               ...x,
               imageRenderFailed: true,
               syncWarning: exceeded
-                ? "Image load failed in browser. Click retry to request a fresh URL."
-                : `Image load interrupted (${retries}/${IMAGE_RENDER_RETRY_MAX}). Retrying...`,
+                ? "浏览器加载图片失败，请点击重试获取新链接。"
+                : `图片加载中断（${retries}/${IMAGE_RENDER_RETRY_MAX}），正在重试...`,
             }
           : x,
       ),
@@ -511,13 +658,20 @@ export default function Generator({
     }, delay);
   };
 
+  const handleGeneratedImageDragStart = (e: React.DragEvent<HTMLImageElement>, imageUrl: string) => {
+    e.dataTransfer.effectAllowed = "copy";
+    e.dataTransfer.setData("application/x-genesis-image-url", imageUrl);
+    e.dataTransfer.setData("text/uri-list", imageUrl);
+    e.dataTransfer.setData("text/plain", imageUrl);
+  };
+
   return (
     <div
       aria-hidden={!isVisible}
       className="p-6 md:p-10 w-full min-h-full flex flex-col"
     >
       <header className="mb-10">
-        <h1 className="font-display text-4xl md:text-5xl uppercase mb-2">Generate Protocol</h1>
+        <h1 className="font-display text-4xl md:text-5xl uppercase mb-2">生成协议</h1>
         <p className="font-mono text-xs opacity-60 uppercase tracking-widest">
           [ INITIALIZE SYNTHESIS ]
         </p>
@@ -532,11 +686,11 @@ export default function Generator({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1">
         <div className="lg:col-span-4 xl:col-span-3 space-y-8">
           <div className="space-y-3">
-            <label className="block font-mono text-[10px] uppercase opacity-70">Prompt</label>
+            <label className="block font-mono text-[10px] uppercase opacity-70">提示词</label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe what you want to generate..."
+              placeholder="请描述你想生成的内容..."
               className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-xl p-4 font-sans text-sm min-h-[120px] focus:outline-none focus:border-white/50 transition-colors resize-none placeholder:opacity-40"
             />
           </div>
@@ -544,12 +698,23 @@ export default function Generator({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="block font-mono text-[10px] uppercase opacity-70">
-                Reference images
+                参考图片
               </label>
               <span className="font-mono text-[10px] opacity-50">{images.length}/6</span>
             </div>
+            <p className="font-mono text-[10px] opacity-60">支持拖拽上传，或将下方已生成图片直接拖入作为参考图</p>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div
+              className={`grid grid-cols-3 gap-2 rounded-lg border border-dashed p-2 transition-colors ${
+                isDragOverUpload ? "border-white/70 bg-white/10" : "border-white/10"
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOverUpload(true);
+              }}
+              onDragLeave={() => setIsDragOverUpload(false)}
+              onDrop={handleDropUpload}
+            >
               {images.map((img, i) => (
                 <div
                   key={i}
@@ -557,7 +722,7 @@ export default function Generator({
                 >
                   <img
                     src={img}
-                    alt={`Reference ${i + 1}`}
+                    alt={`参考图 ${i + 1}`}
                     className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"
                   />
@@ -575,7 +740,7 @@ export default function Generator({
                   className="aspect-square rounded-lg border border-dashed border-white/30 flex flex-col items-center justify-center gap-2 hover:bg-white/5 transition-colors opacity-70 hover:opacity-100"
                 >
                   <Upload className="w-4 h-4" />
-                  <span className="font-mono text-[8px] uppercase">Upload</span>
+                  <span className="font-mono text-[8px] uppercase">点击或拖拽上传</span>
                 </button>
               )}
             </div>
@@ -592,11 +757,11 @@ export default function Generator({
           <div className="space-y-4 border-t border-white/10 pt-6">
             <div className="flex items-center gap-2 mb-4">
               <Settings2 className="w-4 h-4 opacity-70" />
-              <h3 className="font-mono text-xs uppercase tracking-widest">Generation settings</h3>
+              <h3 className="font-mono text-xs uppercase tracking-widest">生成设置</h3>
             </div>
 
             <div>
-              <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">Model</label>
+              <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">模型</label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setModel("v2")}
@@ -624,14 +789,14 @@ export default function Generator({
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">
-                  Aspect ratio
+                  宽高比
                 </label>
                 <select
                   value={aspectRatio}
                   onChange={(e) => setAspectRatio(e.target.value)}
                   className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 font-mono text-xs focus:outline-none focus:border-white/50 appearance-none"
                 >
-                  {ASPECT_RATIO_PRESETS.map((ratio) => (
+                  {aspectRatioOptions.map((ratio) => (
                     <option key={ratio} value={ratio}>
                       {ratio}
                     </option>
@@ -640,7 +805,7 @@ export default function Generator({
               </div>
               <div>
                 <label className="block font-mono text-[10px] uppercase opacity-70 mb-2">
-                  Quality
+                  质量
                 </label>
                 <select
                   value={size}
@@ -663,17 +828,17 @@ export default function Generator({
             {submittingCount > 0 ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Submitting... ({submittingCount})
+                提交中... ({submittingCount})
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4" /> Generate image (-50 CRD)
+                <Sparkles className="w-4 h-4" /> {`开始生成（-${currentGenerationCost} 点）`}
               </>
             )}
           </button>
 
           <div className="font-mono text-[10px] opacity-60 uppercase tracking-widest">
-            Available now: {effectiveCredits ?? "..."} CRD
+            当前可用：{effectiveCredits ?? "..."} 点
           </div>
         </div>
 
@@ -693,18 +858,18 @@ export default function Generator({
             <div className="relative z-10 h-full flex flex-col">
               <div className="px-4 md:px-6 py-4 border-b border-white/10 flex items-center justify-between gap-4">
                 <div>
-                  <h3 className="font-display text-2xl uppercase">Task Queue</h3>
+                  <h3 className="font-display text-2xl uppercase">任务队列</h3>
                   <p className="font-mono text-[10px] uppercase opacity-60 tracking-widest">
-                    Results and statuses update here in real time
+                    结果与状态将在此实时更新
                   </p>
                   <p className="font-mono text-[10px] uppercase opacity-45 tracking-widest mt-1">
-                    Background updates continue while you browse other tabs.
+                    你浏览其他标签页时，后台也会持续更新。
                   </p>
                 </div>
                 <div className="font-mono text-[10px] uppercase opacity-70 text-right">
-                  <div>Active: {activeCount}</div>
-                  <div>Queued: {queuedCount}</div>
-                  <div>Processing: {processingCount}</div>
+                  <div>活跃: {activeCount}</div>
+                  <div>排队: {queuedCount}</div>
+                  <div>处理中: {processingCount}</div>
                 </div>
               </div>
 
@@ -713,9 +878,9 @@ export default function Generator({
                   <div className="h-full min-h-[420px] flex flex-col items-center justify-center gap-4 opacity-35">
                     <ImageIcon className="w-16 h-16" />
                     <p className="font-mono text-xs uppercase tracking-widest text-center max-w-xs">
-                      Waiting for input.
+                      等待输入。
                       <br />
-                      Output will appear here.
+                      生成结果会显示在这里。
                     </p>
                   </div>
                 ) : (
@@ -731,9 +896,11 @@ export default function Generator({
                               <>
                                 <img
                                   src={item.imageUrl}
-                                  alt="Generated"
+                                  alt="已生成图片"
                                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100"
                                   referrerPolicy="no-referrer"
+                                  draggable
+                                  onDragStart={(e) => handleGeneratedImageDragStart(e, item.imageUrl)}
                                   onError={() => handleImageRenderError(item)}
                                 />
                                 <button
@@ -749,14 +916,14 @@ export default function Generator({
                             ) : item.status === "failed" ? (
                               <div className="w-full h-full p-3 flex flex-col items-center justify-center text-center gap-2">
                                 <p className="font-mono text-[10px] uppercase text-red-200">
-                                  {item.error ?? "Generation failed"}
+                                  {item.error ?? "生成失败"}
                                 </p>
                                 <button
                                   onClick={() => handleRetry(item)}
                                   className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-white/30 hover:bg-white/10 transition-colors font-mono text-[10px] uppercase"
                                 >
                                   <RotateCcw className="w-3 h-3" />
-                                  Retry
+                                  重试
                                 </button>
                               </div>
                             ) : item.status === "succeeded" ? (
@@ -764,8 +931,8 @@ export default function Generator({
                                 <ImageIcon className="w-6 h-6" />
                                 <p className="font-mono text-[10px] uppercase tracking-widest text-center px-3">
                                   {item.imageRenderFailed
-                                    ? "Image load interrupted."
-                                    : "Completed. Loading image URL..."}
+                                    ? "图片加载中断。"
+                                    : "已完成，正在加载图片链接..."}
                                 </p>
                                 {item.jobId && (
                                   <button
@@ -784,7 +951,7 @@ export default function Generator({
                                     className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-white/30 hover:bg-white/10 transition-colors font-mono text-[10px] uppercase"
                                   >
                                     <RotateCcw className="w-3 h-3" />
-                                    Retry image
+                                    重试加载图片
                                   </button>
                                 )}
                               </div>
@@ -793,10 +960,10 @@ export default function Generator({
                                 <Loader2 className="w-5 h-5 animate-spin" />
                                 <p className="font-mono text-[10px] uppercase tracking-widest text-center px-3">
                                   {item.status === "submitting"
-                                    ? "Submitting..."
+                                    ? "提交中..."
                                     : item.status === "queued"
-                                      ? "Queued..."
-                                      : "Generating..."}
+                                      ? "排队中..."
+                                      : "生成中..."}
                                 </p>
                               </div>
                             )}
@@ -816,9 +983,9 @@ export default function Generator({
                           <div className="p-2.5 flex-1 flex flex-col justify-between">
                             <p
                               className="font-sans text-xs line-clamp-2 opacity-80 mb-1.5"
-                              title={item.promptSnapshot || "No prompt provided"}
+                              title={item.promptSnapshot || "未填写提示词"}
                             >
-                              {item.promptSnapshot || "No prompt provided"}
+                              {item.promptSnapshot || "未填写提示词"}
                             </p>
                             <p className="font-mono text-[9px] opacity-50 uppercase">
                               {new Date(item.createdAt).toLocaleString()}

@@ -35,11 +35,14 @@ export default function Dashboard({
         </div>
 
         <div className="p-6 border-b border-white/10">
-          <div className="font-mono text-[10px] uppercase opacity-50 mb-1">Current user</div>
+          <div className="font-mono text-[10px] uppercase opacity-50 mb-1">当前用户</div>
           <div className="font-mono text-sm truncate">{userEmail}</div>
           <div className="mt-4 flex items-center justify-between font-mono text-xs">
-            <span className="opacity-70">Credits</span>
-            <span className="text-[#D1DCE5]">{profile?.credits ?? "..."} CRD</span>
+            <span className="opacity-70">点数</span>
+            <span className="text-[#D1DCE5]">{profile?.credits ?? "..."} 点</span>
+          </div>
+          <div className="mt-2 font-mono text-[10px] opacity-60">
+            到期时间：{profile?.creditsExpiresAt ? new Date(profile.creditsExpiresAt).toLocaleString() : "未设置"}
           </div>
         </div>
 
@@ -48,19 +51,19 @@ export default function Dashboard({
             onClick={() => setActiveTab("generate")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-mono text-xs uppercase transition-colors ${activeTab === "generate" ? "bg-white/10 text-white" : "opacity-60 hover:opacity-100 hover:bg-white/5"}`}
           >
-            <ImageIcon className="w-4 h-4" /> Generate
+            <ImageIcon className="w-4 h-4" /> 生成
           </button>
           <button
             onClick={() => setActiveTab("history")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-mono text-xs uppercase transition-colors ${activeTab === "history" ? "bg-white/10 text-white" : "opacity-60 hover:opacity-100 hover:bg-white/5"}`}
           >
-            <HistoryIcon className="w-4 h-4" /> History
+            <HistoryIcon className="w-4 h-4" /> 历史
           </button>
           <button
             onClick={() => setActiveTab("pricing")}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-mono text-xs uppercase transition-colors ${activeTab === "pricing" ? "bg-white/10 text-white" : "opacity-60 hover:opacity-100 hover:bg-white/5"}`}
           >
-            <CreditCard className="w-4 h-4" /> Recharge
+            <CreditCard className="w-4 h-4" /> 充值
           </button>
         </nav>
 
@@ -69,7 +72,7 @@ export default function Dashboard({
             onClick={() => void onLogout()}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-lg font-mono text-xs uppercase opacity-60 hover:opacity-100 hover:bg-white/5 transition-colors text-red-300"
           >
-            <LogOut className="w-4 h-4" /> Logout
+            <LogOut className="w-4 h-4" /> 退出登录
           </button>
         </div>
       </aside>
