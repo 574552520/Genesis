@@ -78,7 +78,7 @@ export default function Dashboard({
         <div className={activeTab === "generate" ? "block" : "hidden"}>
           <Generator
             isVisible={activeTab === "generate"}
-            credits={profile?.credits ?? 0}
+            credits={profile?.credits ?? null}
             onGenerationDone={onRefreshProfile}
           />
         </div>
