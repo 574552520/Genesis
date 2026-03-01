@@ -23,7 +23,7 @@ export default function History() {
         const data = await api.listHistory(60, 0);
         setHistory(data.items);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load history");
+        setError(err instanceof Error ? err.message : "加载历史记录失败");
       } finally {
         setLoading(false);
       }
@@ -39,7 +39,7 @@ export default function History() {
       setHistory((prev) => prev.filter((item) => item.id !== id));
       if (enlargedItem?.id === id) setEnlargedItem(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete item");
+      setError(err instanceof Error ? err.message : "删除记录失败");
     } finally {
       setDeletingId(null);
     }
@@ -48,7 +48,7 @@ export default function History() {
   return (
     <div className="p-6 md:p-10 w-full">
       <header className="mb-10">
-        <h1 className="font-display text-4xl md:text-5xl uppercase mb-2">Archive</h1>
+        <h1 className="font-display text-4xl md:text-5xl uppercase mb-2">历史档案</h1>
         <p className="font-mono text-xs opacity-60 uppercase tracking-widest">
           [ PREVIOUS SYNTHESES ]
         </p>
@@ -56,13 +56,13 @@ export default function History() {
 
       {loading ? (
         <div className="text-center py-20 opacity-60 font-mono text-sm uppercase flex items-center justify-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading history...
+          <Loader2 className="w-4 h-4 animate-spin" /> 加载历史记录中...
         </div>
       ) : error ? (
         <div className="text-center py-20 font-mono text-sm text-red-200">{error}</div>
       ) : history.length === 0 ? (
         <div className="text-center py-20 opacity-50 font-mono text-sm uppercase">
-          No records found.
+          暂无记录。
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-6">
@@ -82,7 +82,7 @@ export default function History() {
                   />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-xs font-mono opacity-60 px-4 text-center">
-                    {item.status === "failed" ? "Generation failed" : item.status}
+                    {item.status === "failed" ? "生成失败" : item.status}
                   </div>
                 )}
                 <div className="absolute top-2 left-2 px-2 py-1 rounded-full border border-white/30 bg-black/40 font-mono text-[10px] uppercase tracking-widest">
@@ -121,7 +121,7 @@ export default function History() {
               </div>
               <div className="p-4 flex-1 flex flex-col justify-between">
                 <p className="font-sans text-sm line-clamp-2 opacity-80 mb-3" title={item.prompt}>
-                  {item.prompt || "No prompt provided"}
+                  {item.prompt || "未填写提示词"}
                 </p>
                 <p className="font-mono text-[10px] opacity-50 uppercase">
                   {new Date(item.createdAt).toLocaleString()}

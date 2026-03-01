@@ -29,9 +29,9 @@ export default function Landing({
           GNSIS
         </div>
         <div className="hidden md:flex items-center gap-8 font-mono text-xs tracking-widest uppercase opacity-70">
-          <button className="hover:opacity-100 transition-opacity">Catalog</button>
-          <button className="hover:opacity-100 transition-opacity">Protocol</button>
-          <button className="hover:opacity-100 transition-opacity">About</button>
+          <button className="hover:opacity-100 transition-opacity">目录</button>
+          <button className="hover:opacity-100 transition-opacity">协议</button>
+          <button className="hover:opacity-100 transition-opacity">关于</button>
         </div>
         <div className="flex items-center gap-4">
           <Search className="w-5 h-5 opacity-70 hover:opacity-100 cursor-pointer" />
@@ -40,7 +40,7 @@ export default function Landing({
             onClick={() => (user ? onNavigate("dashboard") : onNavigate("auth"))}
             className="ml-4 px-4 py-2 border border-white/30 rounded-full font-mono text-xs uppercase hover:bg-white hover:text-[#647B8C] transition-colors"
           >
-            {user ? "Dashboard" : "Login"}
+            {user ? "控制台" : "登录"}
           </button>
         </div>
       </nav>
@@ -54,16 +54,16 @@ export default function Landing({
             <h1 className="font-display text-7xl md:text-9xl leading-[0.85] tracking-tight mb-6 uppercase">
               Genesis
               <br />
-              Protocol
+              协议
             </h1>
 
             <div className="grid grid-cols-2 gap-4 font-mono text-xs uppercase opacity-70 mb-12 border-t border-b border-white/10 py-4">
               <div>
-                <span className="block opacity-50 mb-1">Type</span>
+                <span className="block opacity-50 mb-1">类型</span>
                 GENESIS CORE
               </div>
               <div>
-                <span className="block opacity-50 mb-1">Engine</span>
+                <span className="block opacity-50 mb-1">引擎</span>
                 GEMINI 3 PRO
               </div>
             </div>
@@ -76,7 +76,7 @@ export default function Landing({
                 <ArrowUpRight className="w-5 h-5" />
               </div>
               <span className="font-mono text-sm tracking-widest uppercase pr-6">
-                Start generating
+                开始生成
               </span>
             </button>
           </div>
@@ -98,14 +98,14 @@ export default function Landing({
 
         <div className="mt-auto p-6 border-t border-white/10 flex justify-between items-end">
           <h3 className="font-display text-4xl md:text-6xl uppercase max-w-2xl leading-none opacity-80">
-            Build for creativity
+            为创意而生
             <br />
-            Iterate at speed
+            快速迭代
             <br />
-            Craft in pixels
+            像素化创作
           </h3>
           <div className="font-mono text-[10px] text-right opacity-50 uppercase max-w-xs hidden md:block">
-            GNSIS was born as a response. [ PROTOCOL: ALTITUDE 001.01 ]
+            GNSIS 因需求而生。[ 协议：ALTITUDE 001.01 ]
           </div>
         </div>
       </main>

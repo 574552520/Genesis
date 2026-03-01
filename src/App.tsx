@@ -82,7 +82,7 @@ export default function App() {
   if (bootstrapping) {
     return (
       <div className="min-h-screen bg-[#647B8C] text-white font-sans flex items-center justify-center">
-        <div className="font-mono text-xs uppercase opacity-70">Loading session...</div>
+        <div className="font-mono text-xs uppercase opacity-70">正在加载会话...</div>
       </div>
     );
   }
