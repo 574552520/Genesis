@@ -31,7 +31,10 @@ interface GenerationQueueItem {
   model: ImageModel;
 }
 
-const GENERATION_COST = 50;
+const GENERATION_COST_BY_MODEL_AND_SIZE: Record<ImageModel, Record<string, number>> = {
+  v2: { "1K": 70, "2K": 80, "4K": 130 },
+  pro: { "1K": 90, "2K": 100, "4K": 160 },
+};
 const POLL_INTERVAL_MS = 2000;
 const SUBMIT_TIMEOUT_MS = 15000;
 const MAX_SYNC_RETRY_BEFORE_WARNING = 3;
@@ -80,6 +83,11 @@ function isTerminal(status: QueueItemStatus): boolean {
 
 function normalizePrompt(prompt: string): string {
   return prompt.trim();
+}
+
+
+function getGenerationCost(model: ImageModel, imageSize: string): number {
+  return GENERATION_COST_BY_MODEL_AND_SIZE[model]?.[imageSize] ?? GENERATION_COST_BY_MODEL_AND_SIZE[model]["1K"];
 }
 
 function isSameLocalDay(iso: string, now = new Date()): boolean {
@@ -410,6 +418,8 @@ export default function Generator({
     return () => window.clearInterval(timer);
   }, [queueItems, pollSingleJob]);
 
+  const currentGenerationCost = useMemo(() => getGenerationCost(model, size), [model, size]);
+
   const submitTask = useCallback(
     async (input: {
       prompt: string;
@@ -437,7 +447,8 @@ export default function Generator({
 
       setQueueItems((prev) => [optimisticItem, ...prev]);
       setSubmittingCount((prev) => prev + 1);
-      setReservedCredits((prev) => prev + GENERATION_COST);
+      const taskCost = getGenerationCost(input.model, input.imageSize);
+      setReservedCredits((prev) => prev + taskCost);
       setGlobalError(null);
 
       try {
@@ -461,7 +472,7 @@ export default function Generator({
         try {
           await onGenerationDone();
           if (mountedRef.current) {
-            setReservedCredits((prev) => Math.max(0, prev - GENERATION_COST));
+            setReservedCredits((prev) => Math.max(0, prev - taskCost));
           }
         } catch {
           // Keep reservation when profile sync fails so local validation remains safe.
@@ -530,7 +541,7 @@ export default function Generator({
             try {
               await onGenerationDone();
               if (mountedRef.current) {
-                setReservedCredits((prev) => Math.max(0, prev - GENERATION_COST));
+                setReservedCredits((prev) => Math.max(0, prev - taskCost));
               }
             } catch {
               // Keep reservation when profile sync fails so local validation remains safe.
@@ -551,7 +562,7 @@ export default function Generator({
               : item,
           ),
         );
-        setReservedCredits((prev) => Math.max(0, prev - GENERATION_COST));
+        setReservedCredits((prev) => Math.max(0, prev - taskCost));
         setGlobalError(message);
 
         try {
@@ -573,8 +584,8 @@ export default function Generator({
       setGlobalError("点数仍在加载中，请稍候。");
       return;
     }
-    if (effectiveCredits < GENERATION_COST) {
-      setGlobalError("点数不足，请先充值再生成。");
+    if (effectiveCredits < currentGenerationCost) {
+      setGlobalError(`点数不足，当前设置需要 ${currentGenerationCost} 积分。`);
       return;
     }
     if (!prompt && images.length === 0) {
@@ -595,8 +606,9 @@ export default function Generator({
       setGlobalError("点数仍在加载中，请稍候。");
       return;
     }
-    if (effectiveCredits < GENERATION_COST) {
-      setGlobalError("点数不足，无法重试该任务。");
+    const retryCost = getGenerationCost(item.model, item.imageSize);
+    if (effectiveCredits < retryCost) {
+      setGlobalError(`点数不足，重试该任务需要 ${retryCost} 积分。`);
       return;
     }
     void submitTask({
@@ -820,7 +832,7 @@ export default function Generator({
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4" /> 开始生成（-50 点）
+                <Sparkles className="w-4 h-4" /> {`开始生成（-${currentGenerationCost} 点）`}
               </>
             )}
           </button>

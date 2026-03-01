@@ -126,7 +126,7 @@ export const api = {
     await apiRequest(`/api/generations/${jobId}`, { method: "DELETE" });
   },
 
-  async recharge(tier: CreditTier): Promise<{ credits: number; added: number; tier: CreditTier }> {
+  async recharge(tier: CreditTier): Promise<{ credits: number; added: number; tier: CreditTier; expiresAt: string | null; validityDays: number; priceCny: number; plan: string }> {
     return apiRequest("/api/credits/recharge", {
       method: "POST",
       body: JSON.stringify({ tier }),

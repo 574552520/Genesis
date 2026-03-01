@@ -38,14 +38,23 @@ export const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
-export const generationCost = Number(process.env.GENERATION_COST ?? 50);
 export const storageBucket = process.env.SUPABASE_STORAGE_BUCKET ?? "generated-images";
+
+const generationCostByModelAndSize: Record<ImageModel, Record<string, number>> = {
+  v2: { "1K": 70, "2K": 80, "4K": 130 },
+  pro: { "1K": 90, "2K": 100, "4K": 160 },
+};
+
+export function getGenerationCost(model: ImageModel, imageSize: string): number {
+  return generationCostByModelAndSize[model]?.[imageSize] ?? generationCostByModelAndSize[model]["1K"];
+}
 
 function mapProfile(row: any): UserProfile {
   return {
     userId: row.user_id,
     email: row.email,
     credits: row.credits,
+    creditsExpiresAt: row.credits_expires_at,
     createdAt: row.created_at,
   };
 }
@@ -53,7 +62,7 @@ function mapProfile(row: any): UserProfile {
 export async function getProfile(userId: string, email?: string | null): Promise<UserProfile> {
   const { data, error } = await adminClient
     .from("profiles")
-    .select("user_id,email,credits,created_at")
+    .select("user_id,email,credits,credits_expires_at,created_at")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -76,7 +85,7 @@ export async function getProfile(userId: string, email?: string | null): Promise
 
   const { data: created, error: createdError } = await adminClient
     .from("profiles")
-    .select("user_id,email,credits,created_at")
+    .select("user_id,email,credits,credits_expires_at,created_at")
     .eq("user_id", userId)
     .single();
 
@@ -100,7 +109,7 @@ export async function createGenerationJobAtomic(params: {
     p_aspect_ratio: params.aspectRatio,
     p_image_size: params.imageSize,
     p_model: params.model,
-    p_cost: generationCost,
+    p_cost: getGenerationCost(params.model, params.imageSize),
   });
 
   if (error) {
@@ -144,10 +153,23 @@ export async function setJobSucceeded(jobId: string, imagePath: string): Promise
 }
 
 export async function setJobFailedAndRefund(jobId: string, errorMessage: string): Promise<void> {
+  const { data: job, error: loadError } = await adminClient
+    .from("generation_jobs")
+    .select("model,image_size")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  if (loadError) {
+    throw new Error(loadError.message);
+  }
+
+  const model = (job?.model === "pro" ? "pro" : "v2") as ImageModel;
+  const refundAmount = getGenerationCost(model, job?.image_size ?? "1K");
+
   const { error } = await adminClient.rpc("fail_generation_job_and_refund", {
     p_job_id: jobId,
     p_error: errorMessage,
-    p_refund_amount: generationCost,
+    p_refund_amount: refundAmount,
   });
 
   if (error) {
@@ -218,12 +240,14 @@ export async function rechargeCredits(params: {
   userId: string;
   tier: "standard" | "pro" | "enterprise";
   amount: number;
-}): Promise<number> {
+  expiresAt: string;
+}): Promise<{ credits: number; creditsExpiresAt: string | null }> {
   const { data, error } = await adminClient.rpc("recharge_credits", {
     p_user_id: params.userId,
     p_delta: params.amount,
     p_reason: "recharge_simulated",
     p_meta: { tier: params.tier },
+    p_expires_at: params.expiresAt,
   });
 
   if (error) {
@@ -235,7 +259,10 @@ export async function rechargeCredits(params: {
     throw new Error("Failed to recharge credits");
   }
 
-  return row.credits as number;
+  return {
+    credits: row.credits as number,
+    creditsExpiresAt: (row.credits_expires_at as string | null | undefined) ?? null,
+  };
 }
 
 export async function createSignedImageUrl(path: string): Promise<string> {

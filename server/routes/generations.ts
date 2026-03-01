@@ -12,6 +12,7 @@ import type { ImageModel } from "../types.js";
 
 const router = Router();
 const validModels: ImageModel[] = ["pro", "v2"];
+const validImageSizes = new Set(["1K", "2K", "4K"]);
 
 router.post("/", async (req, res) => {
   try {
@@ -21,7 +22,8 @@ router.post("/", async (req, res) => {
       : [];
     const aspectRatio =
       typeof req.body?.aspectRatio === "string" ? req.body.aspectRatio : "1:1";
-    const imageSize = typeof req.body?.imageSize === "string" ? req.body.imageSize : "1K";
+    const imageSizeRaw = typeof req.body?.imageSize === "string" ? req.body.imageSize : "1K";
+    const imageSize = validImageSizes.has(imageSizeRaw) ? imageSizeRaw : null;
     const modelRaw = typeof req.body?.model === "string" ? req.body.model : "v2";
     const model = validModels.includes(modelRaw as ImageModel) ? (modelRaw as ImageModel) : null;
 
@@ -31,6 +33,10 @@ router.post("/", async (req, res) => {
     }
     if (!model) {
       res.status(400).json({ error: "Invalid model. Use pro or v2." });
+      return;
+    }
+    if (!imageSize) {
+      res.status(400).json({ error: "Invalid image size. Use 1K, 2K, or 4K." });
       return;
     }
 

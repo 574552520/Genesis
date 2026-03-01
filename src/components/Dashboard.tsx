@@ -41,6 +41,9 @@ export default function Dashboard({
             <span className="opacity-70">点数</span>
             <span className="text-[#D1DCE5]">{profile?.credits ?? "..."} 点</span>
           </div>
+          <div className="mt-2 font-mono text-[10px] opacity-60">
+            到期时间：{profile?.creditsExpiresAt ? new Date(profile.creditsExpiresAt).toLocaleString() : "未设置"}
+          </div>
         </div>
 
         <nav className="flex-1 p-4 space-y-2">
