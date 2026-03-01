@@ -38,7 +38,7 @@ export default function Landing({
           <ShoppingBag className="w-5 h-5 opacity-70 hover:opacity-100 cursor-pointer" />
           <button
             onClick={() => (user ? onNavigate("dashboard") : onNavigate("auth"))}
-            className="ml-4 px-4 py-2 border border-white/30 rounded-full font-mono text-xs uppercase hover:bg-white hover:text-[#647B8C] transition-colors"
+            className="ml-4 px-4 py-2 border border-white/30 rounded-full font-mono text-sm uppercase hover:bg-white hover:text-[#647B8C] transition-colors"
           >
             {user ? "控制台" : "登录"}
           </button>
@@ -48,7 +48,7 @@ export default function Landing({
       <main className="flex-1 relative z-10 flex flex-col">
         <div className="p-6 md:p-12 grid grid-cols-1 md:grid-cols-12 gap-8">
           <div className="md:col-span-5 flex flex-col justify-center">
-            <div className="font-mono text-xs tracking-widest uppercase opacity-50 mb-4">
+            <div className="font-mono text-sm tracking-widest uppercase opacity-65 mb-4">
               [ GENESIS STAGE 01 ] [ CORE ]
             </div>
             <h1 className="font-display text-7xl md:text-9xl leading-[0.85] tracking-tight mb-6 uppercase">
@@ -57,7 +57,7 @@ export default function Landing({
               协议
             </h1>
 
-            <div className="grid grid-cols-2 gap-4 font-mono text-xs uppercase opacity-70 mb-12 border-t border-b border-white/10 py-4">
+            <div className="grid grid-cols-2 gap-4 font-mono text-sm uppercase opacity-80 mb-12 border-t border-b border-white/10 py-4">
               <div>
                 <span className="block opacity-50 mb-1">类型</span>
                 GENESIS CORE
@@ -84,9 +84,14 @@ export default function Landing({
           <div className="md:col-span-7 relative h-[50vh] md:h-auto">
             <div className="absolute inset-0 rounded-2xl overflow-hidden border border-white/10 bg-[#3A4A54]/50 backdrop-blur-sm flex items-center justify-center">
               <img
-                src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop"
-                alt="Genesis"
+                src="/landing-right-hero.png"
+                alt="首页主视觉"
                 className="w-full h-full object-cover opacity-80 mix-blend-luminosity"
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src =
+                    "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop";
+                }}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#647B8C] via-transparent to-transparent" />
               <h2 className="absolute bottom-6 left-6 font-display text-4xl opacity-50">
