@@ -6,7 +6,6 @@ import {
   Settings2,
   Sparkles,
   Image as ImageIcon,
-  Maximize2,
   RotateCcw,
 } from "lucide-react";
 import { api } from "../lib/api";
@@ -31,6 +30,8 @@ interface GenerationQueueItem {
   model: ImageModel;
 }
 
+type PreviewSize = "small" | "medium" | "large";
+
 const GENERATION_COST_BY_MODEL_AND_SIZE: Record<ImageModel, Record<string, number>> = {
   v2: { "1K": 70, "2K": 80, "4K": 130 },
   pro: { "1K": 90, "2K": 100, "4K": 160 },
@@ -49,6 +50,17 @@ const ASPECT_RATIO_PRESETS_BY_MODEL: Record<ImageModel, readonly string[]> = {
   v2: [...COMMON_ASPECT_RATIO_PRESETS, "1:4", "4:1", "1:8", "8:1"],
   pro: COMMON_ASPECT_RATIO_PRESETS,
 };
+const PREVIEW_SIZE_GRID_CLASS: Record<PreviewSize, string> = {
+  small: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7",
+  medium: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6",
+  large: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
+};
+const PREVIEW_SIZE_LABEL: Record<PreviewSize, string> = {
+  small: "小图",
+  medium: "中图",
+  large: "大图",
+};
+const PREVIEW_SIZE_ORDER: PreviewSize[] = ["small", "medium", "large"];
 
 function modelLabel(model: ImageModel): string {
   return model === "v2" ? "v2" : "Pro";
@@ -139,6 +151,7 @@ export default function Generator({
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [enlargedPrompt, setEnlargedPrompt] = useState<string | null>(null);
   const [isDragOverUpload, setIsDragOverUpload] = useState(false);
+  const [previewSize, setPreviewSize] = useState<PreviewSize>("medium");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
@@ -665,6 +678,13 @@ export default function Generator({
     e.dataTransfer.setData("text/plain", imageUrl);
   };
 
+  const cyclePreviewSize = () => {
+    setPreviewSize((current) => {
+      const currentIndex = PREVIEW_SIZE_ORDER.indexOf(current);
+      return PREVIEW_SIZE_ORDER[(currentIndex + 1) % PREVIEW_SIZE_ORDER.length];
+    });
+  };
+
   return (
     <div
       aria-hidden={!isVisible}
@@ -870,6 +890,12 @@ export default function Generator({
                   <div>活跃: {activeCount}</div>
                   <div>排队: {queuedCount}</div>
                   <div>处理中: {processingCount}</div>
+                  <button
+                    onClick={cyclePreviewSize}
+                    className="mt-2 px-2 py-1 rounded-md border border-white/30 hover:bg-white/10 transition-colors"
+                  >
+                    预览：{PREVIEW_SIZE_LABEL[previewSize]}
+                  </button>
                 </div>
               </div>
 
@@ -885,34 +911,27 @@ export default function Generator({
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+                    <div className={`grid ${PREVIEW_SIZE_GRID_CLASS[previewSize]} gap-3`}>
                       {queueItems.map((item) => (
                         <div
                           key={item.localId}
                           className="group bg-[#3A4A54]/20 border border-white/10 rounded-lg overflow-hidden hover:border-white/30 transition-colors flex flex-col"
                         >
-                          <div className="aspect-square relative overflow-hidden bg-[#0a0f14]">
+                          <div className="aspect-[3/4] relative overflow-hidden bg-[#0a0f14]">
                             {item.status === "succeeded" && item.imageUrl && !item.imageRenderFailed ? (
-                              <>
-                                <img
-                                  src={item.imageUrl}
-                                  alt="已生成图片"
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100"
-                                  referrerPolicy="no-referrer"
-                                  draggable
-                                  onDragStart={(e) => handleGeneratedImageDragStart(e, item.imageUrl)}
-                                  onError={() => handleImageRenderError(item)}
-                                />
-                                <button
-                                  onClick={() => {
-                                    setEnlargedImage(item.imageUrl);
-                                    setEnlargedPrompt(item.promptSnapshot);
-                                  }}
-                                  className="absolute top-3 right-3 bg-black/50 backdrop-blur-md p-2 rounded-full border border-white/20 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/20"
-                                >
-                                  <Maximize2 className="w-4 h-4" />
-                                </button>
-                              </>
+                              <img
+                                src={item.imageUrl}
+                                alt="已生成图片"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100 cursor-zoom-in"
+                                referrerPolicy="no-referrer"
+                                draggable
+                                onClick={() => {
+                                  setEnlargedImage(item.imageUrl);
+                                  setEnlargedPrompt(item.promptSnapshot);
+                                }}
+                                onDragStart={(e) => handleGeneratedImageDragStart(e, item.imageUrl)}
+                                onError={() => handleImageRenderError(item)}
+                              />
                             ) : item.status === "failed" ? (
                               <div className="w-full h-full p-3 flex flex-col items-center justify-center text-center gap-2">
                                 <p className="font-mono text-[10px] uppercase text-red-200">
