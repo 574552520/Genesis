@@ -6,7 +6,6 @@ import {
   Settings2,
   Sparkles,
   Image as ImageIcon,
-  Maximize2,
   RotateCcw,
 } from "lucide-react";
 import { api } from "../lib/api";
@@ -918,28 +917,21 @@ export default function Generator({
                           key={item.localId}
                           className="group bg-[#3A4A54]/20 border border-white/10 rounded-lg overflow-hidden hover:border-white/30 transition-colors flex flex-col"
                         >
-                          <div className="aspect-square relative overflow-hidden bg-[#0a0f14]">
+                          <div className="aspect-[3/4] relative overflow-hidden bg-[#0a0f14]">
                             {item.status === "succeeded" && item.imageUrl && !item.imageRenderFailed ? (
-                              <>
-                                <img
-                                  src={item.imageUrl}
-                                  alt="已生成图片"
-                                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100"
-                                  referrerPolicy="no-referrer"
-                                  draggable
-                                  onDragStart={(e) => handleGeneratedImageDragStart(e, item.imageUrl)}
-                                  onError={() => handleImageRenderError(item)}
-                                />
-                                <button
-                                  onClick={() => {
-                                    setEnlargedImage(item.imageUrl);
-                                    setEnlargedPrompt(item.promptSnapshot);
-                                  }}
-                                  className="absolute top-3 right-3 bg-black/50 backdrop-blur-md p-2 rounded-full border border-white/20 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/20"
-                                >
-                                  <Maximize2 className="w-4 h-4" />
-                                </button>
-                              </>
+                              <img
+                                src={item.imageUrl}
+                                alt="已生成图片"
+                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100 cursor-zoom-in"
+                                referrerPolicy="no-referrer"
+                                draggable
+                                onClick={() => {
+                                  setEnlargedImage(item.imageUrl);
+                                  setEnlargedPrompt(item.promptSnapshot);
+                                }}
+                                onDragStart={(e) => handleGeneratedImageDragStart(e, item.imageUrl)}
+                                onError={() => handleImageRenderError(item)}
+                              />
                             ) : item.status === "failed" ? (
                               <div className="w-full h-full p-3 flex flex-col items-center justify-center text-center gap-2">
                                 <p className="font-mono text-[10px] uppercase text-red-200">
