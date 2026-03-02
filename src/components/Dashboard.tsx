@@ -4,14 +4,12 @@ import {
   LogOut,
   Image as ImageIcon,
   History as HistoryIcon,
-  CreditCard,
 } from "lucide-react";
 import Generator from "./Generator";
 import History from "./History";
-import Pricing from "./Pricing";
 import type { UserProfile } from "../types";
 
-type Tab = "generate" | "history" | "pricing";
+type Tab = "generate" | "history";
 
 export default function Dashboard({
   profile,
@@ -59,12 +57,6 @@ export default function Dashboard({
           >
             <HistoryIcon className="w-4 h-4" /> 历史
           </button>
-          <button
-            onClick={() => setActiveTab("pricing")}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg font-mono text-xs uppercase transition-colors ${activeTab === "pricing" ? "bg-white/10 text-white" : "opacity-60 hover:opacity-100 hover:bg-white/5"}`}
-          >
-            <CreditCard className="w-4 h-4" /> 充值
-          </button>
         </nav>
 
         <div className="p-4 border-t border-white/10">
@@ -86,7 +78,6 @@ export default function Dashboard({
           />
         </div>
         {activeTab === "history" && <History />}
-        {activeTab === "pricing" && <Pricing onRechargeDone={onRefreshProfile} />}
       </main>
     </div>
   );

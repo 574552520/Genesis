@@ -31,6 +31,8 @@ interface GenerationQueueItem {
   model: ImageModel;
 }
 
+type PreviewSize = "small" | "medium" | "large";
+
 const GENERATION_COST_BY_MODEL_AND_SIZE: Record<ImageModel, Record<string, number>> = {
   v2: { "1K": 70, "2K": 80, "4K": 130 },
   pro: { "1K": 90, "2K": 100, "4K": 160 },
@@ -49,6 +51,17 @@ const ASPECT_RATIO_PRESETS_BY_MODEL: Record<ImageModel, readonly string[]> = {
   v2: [...COMMON_ASPECT_RATIO_PRESETS, "1:4", "4:1", "1:8", "8:1"],
   pro: COMMON_ASPECT_RATIO_PRESETS,
 };
+const PREVIEW_SIZE_GRID_CLASS: Record<PreviewSize, string> = {
+  small: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7",
+  medium: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6",
+  large: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
+};
+const PREVIEW_SIZE_LABEL: Record<PreviewSize, string> = {
+  small: "小图",
+  medium: "中图",
+  large: "大图",
+};
+const PREVIEW_SIZE_ORDER: PreviewSize[] = ["small", "medium", "large"];
 
 function modelLabel(model: ImageModel): string {
   return model === "v2" ? "v2" : "Pro";
@@ -139,6 +152,7 @@ export default function Generator({
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [enlargedPrompt, setEnlargedPrompt] = useState<string | null>(null);
   const [isDragOverUpload, setIsDragOverUpload] = useState(false);
+  const [previewSize, setPreviewSize] = useState<PreviewSize>("medium");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
@@ -665,6 +679,13 @@ export default function Generator({
     e.dataTransfer.setData("text/plain", imageUrl);
   };
 
+  const cyclePreviewSize = () => {
+    setPreviewSize((current) => {
+      const currentIndex = PREVIEW_SIZE_ORDER.indexOf(current);
+      return PREVIEW_SIZE_ORDER[(currentIndex + 1) % PREVIEW_SIZE_ORDER.length];
+    });
+  };
+
   return (
     <div
       aria-hidden={!isVisible}
@@ -870,6 +891,12 @@ export default function Generator({
                   <div>活跃: {activeCount}</div>
                   <div>排队: {queuedCount}</div>
                   <div>处理中: {processingCount}</div>
+                  <button
+                    onClick={cyclePreviewSize}
+                    className="mt-2 px-2 py-1 rounded-md border border-white/30 hover:bg-white/10 transition-colors"
+                  >
+                    预览：{PREVIEW_SIZE_LABEL[previewSize]}
+                  </button>
                 </div>
               </div>
 
@@ -885,7 +912,7 @@ export default function Generator({
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+                    <div className={`grid ${PREVIEW_SIZE_GRID_CLASS[previewSize]} gap-3`}>
                       {queueItems.map((item) => (
                         <div
                           key={item.localId}
