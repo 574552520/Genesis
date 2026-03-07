@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Upload,
   X,
@@ -11,6 +12,14 @@ import {
 import { api } from "../lib/api";
 import ImageModal from "./ImageModal";
 import type { GenerationRecord, ImageModel, JobStatus } from "../types";
+import { historyKeys } from "../hooks/useHistoryQuery";
+import {
+  PREVIEW_GRID_GAP_CLASS,
+  PREVIEW_SIZE_MIN_CARD_WIDTH,
+  PREVIEW_SIZE_LABEL,
+  PREVIEW_SIZE_ORDER,
+  type PreviewSize,
+} from "./previewSizeConfig";
 
 type QueueItemStatus = "submitting" | JobStatus;
 
@@ -30,8 +39,6 @@ interface GenerationQueueItem {
   model: ImageModel;
 }
 
-type PreviewSize = "small" | "medium" | "large";
-
 const GENERATION_COST_BY_MODEL_AND_SIZE: Record<ImageModel, Record<string, number>> = {
   v2: { "1K": 70, "2K": 80, "4K": 130 },
   pro: { "1K": 90, "2K": 100, "4K": 160 },
@@ -50,18 +57,6 @@ const ASPECT_RATIO_PRESETS_BY_MODEL: Record<ImageModel, readonly string[]> = {
   v2: [...COMMON_ASPECT_RATIO_PRESETS, "1:4", "4:1", "1:8", "8:1"],
   pro: COMMON_ASPECT_RATIO_PRESETS,
 };
-const PREVIEW_SIZE_GRID_CLASS: Record<PreviewSize, string> = {
-  small: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7",
-  medium: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6",
-  large: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5",
-};
-const PREVIEW_SIZE_LABEL: Record<PreviewSize, string> = {
-  small: "小图",
-  medium: "中图",
-  large: "大图",
-};
-const PREVIEW_SIZE_ORDER: PreviewSize[] = ["small", "medium", "large"];
-
 function modelLabel(model: ImageModel): string {
   return model === "v2" ? "v2" : "Pro";
 }
@@ -134,11 +129,16 @@ export default function Generator({
   isVisible,
   credits,
   onGenerationDone,
+  previewSize,
+  onPreviewSizeChange,
 }: {
   isVisible?: boolean;
   credits: number | null;
   onGenerationDone: () => Promise<void>;
+  previewSize: PreviewSize;
+  onPreviewSizeChange: (next: PreviewSize) => void;
 }) {
+  const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<string[]>([]);
   const [aspectRatio, setAspectRatio] = useState("1:1");
@@ -151,7 +151,6 @@ export default function Generator({
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [enlargedPrompt, setEnlargedPrompt] = useState<string | null>(null);
   const [isDragOverUpload, setIsDragOverUpload] = useState(false);
-  const [previewSize, setPreviewSize] = useState<PreviewSize>("medium");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
@@ -162,8 +161,14 @@ export default function Generator({
   const imageLoadRetriesRef = useRef<Map<string, number>>(new Map());
   const imageReloadInFlightRef = useRef<Set<string>>(new Set());
   const lastCreditsRef = useRef<number | null>(credits);
+  const queueItemsRef = useRef<GenerationQueueItem[]>([]);
+
+  const invalidateHistoryCache = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: historyKeys.all });
+  }, [queryClient]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       inFlightRef.current.clear();
@@ -174,6 +179,10 @@ export default function Generator({
       imageReloadInFlightRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    queueItemsRef.current = queueItems;
+  }, [queueItems]);
 
   useEffect(() => {
     const previousCredits = lastCreditsRef.current;
@@ -384,6 +393,7 @@ export default function Generator({
           } catch {
             // Ignore profile refresh failures; queue UI still reflects terminal state.
           }
+          invalidateHistoryCache();
         }
       } catch (error) {
         const retries = (failureCountsRef.current.get(jobId) ?? 0) + 1;
@@ -402,7 +412,7 @@ export default function Generator({
         inFlightRef.current.delete(jobId);
       }
     },
-    [onGenerationDone],
+    [invalidateHistoryCache, onGenerationDone],
   );
 
   const refreshImageUrl = useCallback(
@@ -416,7 +426,7 @@ export default function Generator({
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      queueItems.forEach((item) => {
+      queueItemsRef.current.forEach((item) => {
         if (!item.jobId) return;
         if (
           item.status !== "queued" &&
@@ -429,7 +439,7 @@ export default function Generator({
       });
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [queueItems, pollSingleJob]);
+  }, [pollSingleJob]);
 
   const currentGenerationCost = useMemo(() => getGenerationCost(model, size), [model, size]);
 
@@ -481,6 +491,7 @@ export default function Generator({
               : item,
           ),
         );
+        invalidateHistoryCache();
 
         try {
           await onGenerationDone();
@@ -559,6 +570,7 @@ export default function Generator({
             } catch {
               // Keep reservation when profile sync fails so local validation remains safe.
             }
+            invalidateHistoryCache();
           }
           return;
         }
@@ -583,13 +595,14 @@ export default function Generator({
         } catch {
           // Keep queue item error as primary feedback.
         }
+        invalidateHistoryCache();
       } finally {
         if (mountedRef.current) {
           setSubmittingCount((prev) => Math.max(0, prev - 1));
         }
       }
     },
-    [onGenerationDone, pollSingleJob],
+    [invalidateHistoryCache, onGenerationDone, pollSingleJob],
   );
 
   const handleGenerate = () => {
@@ -679,16 +692,15 @@ export default function Generator({
   };
 
   const cyclePreviewSize = () => {
-    setPreviewSize((current) => {
-      const currentIndex = PREVIEW_SIZE_ORDER.indexOf(current);
-      return PREVIEW_SIZE_ORDER[(currentIndex + 1) % PREVIEW_SIZE_ORDER.length];
-    });
+    const currentIndex = PREVIEW_SIZE_ORDER.indexOf(previewSize);
+    const next = PREVIEW_SIZE_ORDER[(currentIndex + 1) % PREVIEW_SIZE_ORDER.length];
+    onPreviewSizeChange(next);
   };
 
   return (
     <div
       aria-hidden={!isVisible}
-      className="p-6 md:p-10 w-full min-h-full flex flex-col"
+      className="p-6 md:p-10 w-full h-full min-h-0 flex flex-col overflow-hidden"
     >
       <header className="mb-10">
         <h1 className="font-display text-4xl md:text-5xl uppercase mb-2">生成协议</h1>
@@ -703,8 +715,8 @@ export default function Generator({
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1">
-        <div className="lg:col-span-4 xl:col-span-3 space-y-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 min-h-0 overflow-hidden content-stretch">
+        <div className="lg:col-span-4 xl:col-span-3 min-h-0 flex flex-col gap-8 overflow-y-auto workspace-scroll-area pr-1">
           <div className="space-y-3">
             <label className="block font-mono text-[10px] uppercase opacity-70">提示词</label>
             <textarea
@@ -745,6 +757,8 @@ export default function Generator({
                     alt={`参考图 ${i + 1}`}
                     className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"
+                    loading="lazy"
+                    decoding="async"
                   />
                   <button
                     onClick={() => removeImage(i)}
@@ -852,18 +866,18 @@ export default function Generator({
               </>
             ) : (
               <>
-                <Sparkles className="w-4 h-4" /> {`开始生成（-${currentGenerationCost} 点）`}
+                <Sparkles className="w-4 h-4" /> {`开始生成（-${currentGenerationCost} 积分）`}
               </>
             )}
           </button>
 
           <div className="font-mono text-[10px] opacity-60 uppercase tracking-widest">
-            当前可用：{effectiveCredits ?? "..."} 点
+            当前可用：{effectiveCredits ?? "..."} 积分
           </div>
         </div>
 
-        <div className="lg:col-span-8 xl:col-span-9 flex flex-col">
-          <div className="bg-[#3A4A54]/10 border border-white/10 rounded-2xl flex-1 min-h-[600px] overflow-hidden relative backdrop-blur-sm">
+        <div className="lg:col-span-8 xl:col-span-9 h-full min-h-0 flex flex-col overflow-hidden">
+          <div className="bg-[#3A4A54]/10 border border-white/10 rounded-2xl h-full flex-1 min-h-0 md:min-h-0 overflow-hidden relative workspace-scroll-lock">
             <div className="absolute inset-0 pointer-events-none">
               <div
                 className="w-full h-full"
@@ -875,8 +889,8 @@ export default function Generator({
               />
             </div>
 
-            <div className="relative z-10 h-full flex flex-col">
-              <div className="px-4 md:px-6 py-4 border-b border-white/10 flex items-center justify-between gap-4">
+            <div className="relative z-10 h-full min-h-0 flex flex-col overflow-hidden">
+              <div className="shrink-0 px-4 md:px-6 py-4 border-b border-white/10 flex items-center justify-between gap-4">
                 <div>
                   <h3 className="font-display text-2xl uppercase">任务队列</h3>
                   <p className="font-mono text-[10px] uppercase opacity-60 tracking-widest">
@@ -899,7 +913,7 @@ export default function Generator({
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-4 md:p-6">
+              <div className="flex-1 min-h-0 overflow-y-auto workspace-scroll-area p-4 md:p-6">
                 {queueItems.length === 0 ? (
                   <div className="h-full min-h-[420px] flex flex-col items-center justify-center gap-4 opacity-35">
                     <ImageIcon className="w-16 h-16" />
@@ -911,19 +925,26 @@ export default function Generator({
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div className={`grid ${PREVIEW_SIZE_GRID_CLASS[previewSize]} gap-3`}>
+                    <div
+                      className={`grid ${PREVIEW_GRID_GAP_CLASS}`}
+                      style={{
+                        gridTemplateColumns: `repeat(auto-fill, minmax(${PREVIEW_SIZE_MIN_CARD_WIDTH[previewSize]}, 1fr))`,
+                      }}
+                    >
                       {queueItems.map((item) => (
                         <div
                           key={item.localId}
-                          className="group bg-[#3A4A54]/20 border border-white/10 rounded-lg overflow-hidden hover:border-white/30 transition-colors flex flex-col"
+                          className="group render-isolate bg-[#3A4A54]/20 border border-white/10 rounded-lg overflow-hidden hover:border-white/30 transition-colors flex flex-col"
                         >
                           <div className="aspect-[3/4] relative overflow-hidden bg-[#0a0f14]">
                             {item.status === "succeeded" && item.imageUrl && !item.imageRenderFailed ? (
                               <img
                                 src={item.imageUrl}
                                 alt="已生成图片"
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100 cursor-zoom-in"
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02] cursor-zoom-in"
                                 referrerPolicy="no-referrer"
+                                loading="lazy"
+                                decoding="async"
                                 draggable
                                 onClick={() => {
                                   setEnlargedImage(item.imageUrl);
@@ -989,7 +1010,7 @@ export default function Generator({
 
                             <div className="absolute top-2 left-2 flex items-center gap-2">
                               <span
-                                className={`px-2 py-1 rounded-full border font-mono text-[10px] uppercase tracking-widest backdrop-blur-sm ${statusBadgeClass(item.status)}`}
+                                className={`px-2 py-1 rounded-full border font-mono text-[10px] uppercase tracking-widest bg-black/55 ${statusBadgeClass(item.status)}`}
                               >
                                 {statusLabel(item.status)}
                               </span>

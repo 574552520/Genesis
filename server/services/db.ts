@@ -1,5 +1,24 @@
-import { createClient } from "@supabase/supabase-js";
-import type { GenerationJobRow, ImageModel, UserProfile } from "../types.js";
+﻿import { createClient } from "@supabase/supabase-js";
+import type {
+  CommerceMode,
+  CommerceModuleInput,
+  CommercePack,
+  CommercePackItemRow,
+  CommercePackRow,
+  CommercePlatform,
+  CommerceTemplateType,
+  FlatlayInput,
+  CopyBlock,
+  GenerationJobRow,
+  InvisibleMannequinInput,
+  LaunchPackInput,
+  LookbookInput,
+  ImageTaskSpec,
+  ImageModel,
+  QualityWarning,
+  TryOnInput,
+  UserProfile,
+} from "../types.js";
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
@@ -276,3 +295,324 @@ export async function createSignedImageUrl(path: string): Promise<string> {
 
   return data.signedUrl;
 }
+
+export async function createCommercePack(params: {
+  userId: string;
+  platform: CommercePlatform;
+  mode: CommerceMode;
+  templateType: CommerceTemplateType;
+  input: CommerceModuleInput;
+}): Promise<string> {
+  const { data, error } = await adminClient
+    .from("commerce_packs")
+    .insert({
+      user_id: params.userId,
+      platform: params.platform,
+      mode: params.mode,
+      template_type: params.templateType,
+      status: "processing",
+      input: params.input,
+      copy_blocks: [],
+      title_candidates: [],
+      keywords: [],
+      quality_warnings: [],
+    })
+    .select("id")
+    .single();
+
+  if (error || !data?.id) {
+    throw new Error(error?.message ?? "Failed to create commerce pack");
+  }
+
+  return data.id as string;
+}
+
+export async function setCommercePackFailed(params: {
+  packId: string;
+  error: string;
+}): Promise<void> {
+  const { error } = await adminClient
+    .from("commerce_packs")
+    .update({
+      status: "failed",
+      error: params.error.slice(0, 1200),
+    })
+    .eq("id", params.packId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function setCommercePackReady(params: {
+  packId: string;
+  copyBlocks: CopyBlock[];
+  titleCandidates: string[];
+  keywords: string[];
+  qualityWarnings: QualityWarning[];
+}): Promise<void> {
+  const { error } = await adminClient
+    .from("commerce_packs")
+    .update({
+      status: "ready",
+      error: null,
+      copy_blocks: params.copyBlocks,
+      title_candidates: params.titleCandidates,
+      keywords: params.keywords,
+      quality_warnings: params.qualityWarnings,
+    })
+    .eq("id", params.packId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+export async function insertCommercePackItems(params: {
+  packId: string;
+  imageTasks: Array<{
+    title: string;
+    prompt: string;
+    aspectRatio: string;
+    imageSize: string;
+    model: ImageModel;
+    jobId: string | null;
+  }>;
+}): Promise<void> {
+  if (params.imageTasks.length === 0) return;
+
+  const payload = params.imageTasks.map((task) => ({
+    pack_id: params.packId,
+    item_type: "image_task",
+    title: task.title,
+    prompt: task.prompt,
+    aspect_ratio: task.aspectRatio,
+    image_size: task.imageSize,
+    model: task.model,
+    job_id: task.jobId,
+  }));
+
+  const { error } = await adminClient.from("commerce_pack_items").insert(payload);
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+function mapCommercePackRow(row: CommercePackRow): CommercePack {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    platform: row.platform,
+    mode: row.mode ?? "launch_pack",
+    templateType: row.template_type,
+    status: row.status,
+    input: row.input,
+    copyBlocks: Array.isArray(row.copy_blocks) ? row.copy_blocks : [],
+    titleCandidates: Array.isArray(row.title_candidates) ? row.title_candidates : [],
+    keywords: Array.isArray(row.keywords) ? row.keywords : [],
+    qualityWarnings: Array.isArray(row.quality_warnings) ? row.quality_warnings : [],
+    imageTasks: [],
+    error: row.error,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getCommercePackByIdForUser(params: {
+  userId: string;
+  packId: string;
+}): Promise<CommercePack | null> {
+  const syncWarnings: QualityWarning[] = [];
+  const addPackWarning = (code: string, message: string): void => {
+    syncWarnings.push({ code, message, severity: "warning" });
+    console.warn("Commerce pack fetch warning", {
+      packId: params.packId,
+      code,
+      message,
+    });
+  };
+
+  const { data: packData, error: packError } = await adminClient
+    .from("commerce_packs")
+    .select("*")
+    .eq("id", params.packId)
+    .eq("user_id", params.userId)
+    .maybeSingle();
+
+  if (packError) {
+    throw new Error(packError.message);
+  }
+  if (!packData) {
+    return null;
+  }
+
+  let items: CommercePackItemRow[] = [];
+  try {
+    const { data: itemData, error: itemError } = await adminClient
+      .from("commerce_pack_items")
+      .select("*")
+      .eq("pack_id", params.packId)
+      .order("id", { ascending: true });
+
+    if (itemError) {
+      addPackWarning("items_query_failed", itemError.message);
+    } else {
+      items = (itemData ?? []) as CommercePackItemRow[];
+      console.log("Commerce pack items context", {
+        packId: params.packId,
+        itemsLength: items.length,
+      });
+    }
+  } catch (error) {
+    addPackWarning("items_query_exception", error instanceof Error ? error.message : "Unknown items query error");
+  }
+
+  const jobIds = items.map((item) => item.job_id).filter((id): id is string => typeof id === "string");
+  if (jobIds.length > 0) {
+    console.log("Commerce pack context", {
+      packId: params.packId,
+      itemsLength: items.length,
+      jobIdsLength: jobIds.length,
+    });
+  }
+
+  const jobsById = new Map<string, GenerationJobRow>();
+  if (jobIds.length > 0) {
+    try {
+      const { data: jobs, error: jobsError } = await adminClient
+        .from("generation_jobs")
+        .select("*")
+        .in("id", jobIds)
+        .eq("user_id", params.userId);
+
+      if (jobsError) {
+        addPackWarning("jobs_query_failed", jobsError.message);
+      } else {
+        (jobs ?? []).forEach((job) => {
+          jobsById.set((job as GenerationJobRow).id, job as GenerationJobRow);
+        });
+        console.log("Commerce pack jobs context", {
+          packId: params.packId,
+          jobsLength: jobs?.length ?? 0,
+          jobsWithImagePath: (jobs ?? []).filter((job) => Boolean((job as GenerationJobRow).result_image_path)).length,
+        });
+      }
+    } catch (error) {
+      addPackWarning("jobs_query_exception", error instanceof Error ? error.message : "Unknown jobs query error");
+    }
+  }
+
+  const mapped = mapCommercePackRow(packData as CommercePackRow);
+  const seenWarningKeys = new Set(mapped.qualityWarnings.map((warning) => `${warning.code}:${warning.message}`));
+  for (const warning of syncWarnings) {
+    const key = `${warning.code}:${warning.message}`;
+    if (!seenWarningKeys.has(key)) {
+      mapped.qualityWarnings.push(warning);
+      seenWarningKeys.add(key);
+    }
+  }
+
+  let signedUrlFailureCount = 0;
+  const imageTasks: ImageTaskSpec[] = await Promise.all(
+    items.map(async (item, idx) => {
+      const job = item.job_id ? jobsById.get(item.job_id) : null;
+      let imageUrl: string | null = null;
+      if (job?.result_image_path) {
+        try {
+          imageUrl = await createSignedImageUrl(job.result_image_path);
+        } catch {
+          signedUrlFailureCount += 1;
+          addPackWarning("signed_url_failed", `Task ${item.id} image URL generation failed`);
+          imageUrl = null;
+        }
+      }
+
+      const itemReferenceImages =
+        "reference_images" in item && Array.isArray((item as { reference_images?: unknown }).reference_images)
+          ? (item as { reference_images?: string[] }).reference_images ?? []
+          : inferReferenceImagesFromPackItem({
+              mode: mapped.mode,
+              input: mapped.input,
+              item,
+              itemIndex: idx,
+            });
+
+      return {
+        id: `${item.id}`,
+        title: item.title || `图片任务 ${idx + 1}`,
+        prompt: item.prompt,
+        aspectRatio: item.aspect_ratio,
+        imageSize: item.image_size,
+        model: item.model,
+        status: job?.status ?? "queued",
+        imageUrl,
+        error: job?.error ?? null,
+        jobId: item.job_id,
+        referenceImages: dedupeTrimmed(itemReferenceImages),
+      };
+    }),
+  );
+
+  console.log("Commerce pack assembled", {
+    packId: params.packId,
+    itemsLength: items.length,
+    jobIdsLength: jobIds.length,
+    jobsLength: jobsById.size,
+    jobsWithImagePath: Array.from(jobsById.values()).filter((job) => Boolean(job.result_image_path)).length,
+    signedUrlFailureCount,
+    warningsLength: mapped.qualityWarnings.length,
+  });
+
+  mapped.imageTasks = imageTasks;
+  return mapped;
+}
+
+function inferReferenceImagesFromPackItem(params: {
+  mode: CommerceMode;
+  input: CommerceModuleInput;
+  item: CommercePackItemRow;
+  itemIndex: number;
+}): string[] {
+  if (params.mode === "launch_pack") {
+    return dedupeTrimmed((params.input as unknown as LaunchPackInput).referenceImages);
+  }
+
+  if (params.mode === "lookbook") {
+    const baseModelImage = (params.input as unknown as LookbookInput).baseModelImage;
+    return baseModelImage ? [baseModelImage] : [];
+  }
+
+  if (params.mode === "flatlay" || params.mode === "invisible_mannequin_3d") {
+    const flatInput = params.input as unknown as FlatlayInput | InvisibleMannequinInput;
+    const title = params.item.title.toLowerCase();
+    const sideImage = title.includes("front") ? flatInput.frontImage : title.includes("back") ? flatInput.backImage : null;
+    return dedupeTrimmed(sideImage ? [sideImage, ...(flatInput.referenceImages ?? [])] : flatInput.referenceImages ?? []);
+  }
+
+  if (params.mode === "try_on") {
+    const tryOn = params.input as unknown as TryOnInput;
+    const productRefs = dedupeTrimmed(tryOn.productImages);
+    const sceneRefs = dedupeTrimmed(tryOn.sceneReferenceImages);
+    const modelRefs = dedupeTrimmed(tryOn.modelReferenceImages);
+    const sceneRef = sceneRefs.length > 0 ? sceneRefs[params.itemIndex % sceneRefs.length] : null;
+    return dedupeTrimmed(sceneRef ? [...productRefs, sceneRef, ...modelRefs] : [...productRefs, ...modelRefs]);
+  }
+
+  return [];
+}
+
+function dedupeTrimmed(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const next = typeof value === "string" ? value.trim() : "";
+    if (!next || seen.has(next)) continue;
+    seen.add(next);
+    result.push(next);
+    if (result.length >= 6) break;
+  }
+  return result;
+}
+
+

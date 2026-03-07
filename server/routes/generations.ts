@@ -56,6 +56,7 @@ router.post("/", async (req, res) => {
       aspectRatio,
       imageSize,
       model,
+      lane: "generator",
     });
 
     res.status(202).json({ jobId, status: "queued" });

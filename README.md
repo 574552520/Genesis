@@ -17,6 +17,53 @@ This project now runs as a full-stack app:
 
 2. Copy `.env.example` to `.env` and fill real values.
 
+### Local Supabase development
+
+For daily local development, prefer running Supabase on your machine instead of using a hosted free-tier project.
+
+1. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+2. Start local Supabase:
+
+   ```bash
+   npm run supabase:start
+   ```
+
+3. Copy the local keys into your env file:
+
+   - Run `npm run supabase:status`
+   - Copy `.env.local.example` to `.env`
+   - Paste the local `API URL`, `anon key`, and `service_role key`
+
+4. Local defaults used by this repo:
+
+   - API: `http://127.0.0.1:54321`
+   - DB: `postgresql://postgres:postgres@127.0.0.1:54322/postgres`
+   - Studio: `http://127.0.0.1:54323`
+   - Inbucket: `http://127.0.0.1:54324`
+
+5. Auth behavior for local dev:
+
+   - Email/password sign-up stays enabled
+   - Email confirmation is disabled in `supabase/config.toml`, so local test accounts can sign in immediately
+
+6. Useful local commands:
+
+   ```bash
+   npm run supabase:status
+   npm run supabase:db:reset
+   npm run supabase:stop
+   ```
+
+7. Keep image generation online:
+
+   - Leave `LINGKE_API_BASE_URL`, `LINGKE_API_KEY`, and `LINGKE_BEARER_TOKEN` pointing to Lingke
+   - Only Supabase moves local in this setup
+
 3. Run Supabase SQL migration in your Supabase project:
 
    - File: `supabase/migrations/202602280001_init.sql`
@@ -33,6 +80,8 @@ This starts:
 - Backend API: `http://localhost:8787`
 
 Vite proxies `/api/*` to backend during development.
+
+If you are using local Supabase, start it before `npm run dev`.
 
 ## 3) Build
 
@@ -55,9 +104,10 @@ npm run build
   - `SUPABASE_ANON_KEY`
   - `SUPABASE_SERVICE_ROLE_KEY`
   - `SUPABASE_STORAGE_BUCKET="generated-images"`
-  - `LINGKE_API_BASE_URL`
-  - `LINGKE_API_KEY`
-  - `GENERATION_COST=50`
+- `LINGKE_API_BASE_URL`
+- `LINGKE_API_KEY`
+- `GENERATION_COST=50`
+  - `API_BODY_LIMIT="80mb"` (increase if sending many base64 images)
 
 After deploy, verify:
 
@@ -87,3 +137,10 @@ Then redeploy Vercel production.
 - `POST /api/credits/recharge`
 
 All business endpoints require `Authorization: Bearer <supabase_access_token>`.
+
+### Try-on behavior note
+
+- Endpoint: `POST /api/commerce/pack/generate` with `mode="try_on"`.
+- If `sceneReferenceImages` is provided, generated task count is automatically `min(sceneReferenceImages.length, 6)`.
+- Scene images are mapped 1:1 to output tasks (`scene[0] -> task 1`, `scene[1] -> task 2`, ...).
+- In this mode, model reference images are prioritized for identity consistency, while scene references drive background/composition replication.
