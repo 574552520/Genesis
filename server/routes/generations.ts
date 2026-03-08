@@ -46,6 +46,7 @@ router.post("/", async (req, res) => {
       aspectRatio,
       imageSize,
       model,
+      lane: "generator",
     });
 
     enqueueGenerationJob({
@@ -98,6 +99,7 @@ router.get("/jobs/:jobId", async (req, res) => {
         aspectRatio: job.aspect_ratio,
         imageSize: job.image_size,
         model: job.model,
+        lane: job.lane,
         status: job.status,
         error: job.error,
         imageUrl,
@@ -138,6 +140,7 @@ router.get("/history", async (req, res) => {
           aspectRatio: job.aspect_ratio,
           imageSize: job.image_size,
           model: job.model,
+          lane: job.lane,
           status: job.status,
           error: job.error,
           imageUrl,

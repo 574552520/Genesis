@@ -20,6 +20,7 @@ export type CommerceMode =
   | "lookbook"
   | "flatlay"
   | "invisible_mannequin_3d";
+export type GenerationLane = "generator" | CommerceMode;
 export type TryOnGenderCategory = "menswear" | "womenswear" | "unisex";
 export type TryOnAgeGroup =
   | "adult"
@@ -29,6 +30,7 @@ export type TryOnAgeGroup =
   | "younger_kids"
   | "toddlers";
 export type LookbookAngle = "front" | "side" | "back";
+export type LookbookMode = "angle_preset" | "count_input";
 export type GarmentGenerationMode = "smart" | "reference";
 export type LaunchPackGenderPreset = "menswear" | "womenswear" | "unisex";
 export type LaunchPackAgePreset = "adult" | "teen" | "kids";
@@ -49,6 +51,7 @@ export interface GenerationJob {
   aspectRatio: string;
   imageSize: string;
   model: ImageModel;
+  lane: GenerationLane;
   status: JobStatus;
   error: string | null;
   imageUrl: string | null;
@@ -63,6 +66,7 @@ export interface GenerationRecord {
   aspectRatio: string;
   imageSize: string;
   model: ImageModel;
+  lane: GenerationLane;
   status: JobStatus;
   error: string | null;
   imageUrl: string | null;
@@ -113,7 +117,9 @@ export interface TryOnInput extends CommerceBaseSettings {
 
 export interface LookbookInput extends CommerceBaseSettings {
   mode: "lookbook";
+  lookbookMode: LookbookMode;
   baseModelImage: string | null;
+  backReferenceImage?: string | null;
   referenceImages?: string[];
   selectedAngles: LookbookAngle[];
   requestedCount: number;
@@ -154,6 +160,7 @@ export type CommerceModuleInput =
 export interface CommerceGenerateRequest {
   mode: CommerceMode;
   input: CommerceModuleInput;
+  editMode?: boolean;
 }
 
 // Backward alias for old call sites.

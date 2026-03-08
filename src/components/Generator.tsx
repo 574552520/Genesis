@@ -10,6 +10,13 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { api } from "../lib/api";
+import {
+  GENERATOR_SUBMIT_EVENT,
+  type GeneratorSubmitEventDetail,
+  type GeneratorSubmitInput,
+  type GeneratorSubmitOptions,
+  type GeneratorSubmitResult,
+} from "../lib/generatorSubmission";
 import ImageModal from "./ImageModal";
 import type { GenerationRecord, ImageModel, JobStatus } from "../types";
 import { historyKeys } from "../hooks/useHistoryQuery";
@@ -26,6 +33,9 @@ type QueueItemStatus = "submitting" | JobStatus;
 interface GenerationQueueItem {
   localId: string;
   jobId: string | null;
+  insertAfterLocalId: string | null;
+  insertAfterJobId: string | null;
+  placeholderSourceUrl: string | null;
   promptSnapshot: string;
   referenceImages: string[];
   createdAt: string;
@@ -111,6 +121,9 @@ function historyItemToQueueItem(item: GenerationRecord): GenerationQueueItem {
   return {
     localId: `history-${item.id}`,
     jobId: item.id,
+    insertAfterLocalId: null,
+    insertAfterJobId: null,
+    placeholderSourceUrl: item.imageUrl,
     promptSnapshot: item.prompt,
     referenceImages: [],
     createdAt: item.createdAt,
@@ -123,6 +136,39 @@ function historyItemToQueueItem(item: GenerationRecord): GenerationQueueItem {
     imageSize: item.imageSize,
     model: item.model,
   };
+}
+
+function insertQueueItemAfter(
+  items: GenerationQueueItem[],
+  nextItem: GenerationQueueItem,
+  options?: GeneratorSubmitOptions,
+): GenerationQueueItem[] {
+  const anchorLocalId = options?.anchorLocalId ?? null;
+  const anchorJobId = options?.anchorJobId ?? null;
+  if (!anchorLocalId && !anchorJobId) {
+    return [nextItem, ...items];
+  }
+
+  let insertIndex = items.findIndex(
+    (item) =>
+      (anchorLocalId && item.localId === anchorLocalId) ||
+      (anchorJobId && item.jobId === anchorJobId),
+  );
+
+  if (insertIndex < 0) {
+    return [nextItem, ...items];
+  }
+
+  for (let index = insertIndex + 1; index < items.length; index += 1) {
+    const candidate = items[index];
+    const belongsToAnchor =
+      (anchorLocalId && candidate.insertAfterLocalId === anchorLocalId) ||
+      (anchorJobId && candidate.insertAfterJobId === anchorJobId);
+    if (!belongsToAnchor) break;
+    insertIndex = index;
+  }
+
+  return [...items.slice(0, insertIndex + 1), nextItem, ...items.slice(insertIndex + 1)];
 }
 
 export default function Generator({
@@ -148,8 +194,9 @@ export default function Generator({
   const [submittingCount, setSubmittingCount] = useState(0);
   const [reservedCredits, setReservedCredits] = useState(0);
   const [globalError, setGlobalError] = useState<string | null>(null);
-  const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
-  const [enlargedPrompt, setEnlargedPrompt] = useState<string | null>(null);
+  const [modalSelectedLocalId, setModalSelectedLocalId] = useState<string | null>(null);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [isDragOverUpload, setIsDragOverUpload] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -237,7 +284,7 @@ export default function Generator({
         if (!mountedRef.current) return;
 
         const todayItems = history.items
-          .filter((item) => isSameLocalDay(item.createdAt))
+          .filter((item) => item.lane === "generator" && isSameLocalDay(item.createdAt))
           .map(historyItemToQueueItem);
 
         setQueueItems(todayItems);
@@ -444,17 +491,15 @@ export default function Generator({
   const currentGenerationCost = useMemo(() => getGenerationCost(model, size), [model, size]);
 
   const submitTask = useCallback(
-    async (input: {
-      prompt: string;
-      referenceImages: string[];
-      aspectRatio: string;
-      imageSize: string;
-      model: ImageModel;
-    }) => {
+    async (input: GeneratorSubmitInput, options?: GeneratorSubmitOptions): Promise<GeneratorSubmitResult> => {
       const localId = makeLocalId();
+      const placeholderSourceUrl = options?.sourceImageUrl ?? input.referenceImages[0] ?? null;
       const optimisticItem: GenerationQueueItem = {
         localId,
         jobId: null,
+        insertAfterLocalId: options?.anchorLocalId ?? null,
+        insertAfterJobId: options?.anchorJobId ?? null,
+        placeholderSourceUrl,
         promptSnapshot: input.prompt,
         referenceImages: input.referenceImages,
         createdAt: new Date().toISOString(),
@@ -468,7 +513,8 @@ export default function Generator({
         model: input.model,
       };
 
-      setQueueItems((prev) => [optimisticItem, ...prev]);
+      setQueueItems((prev) => insertQueueItemAfter(prev, optimisticItem, options));
+      options?.onOptimistic?.({ localId, sourceImageUrl: placeholderSourceUrl });
       setSubmittingCount((prev) => prev + 1);
       const taskCost = getGenerationCost(input.model, input.imageSize);
       setReservedCredits((prev) => prev + taskCost);
@@ -476,7 +522,7 @@ export default function Generator({
 
       try {
         const created = await api.createGeneration(input, { timeoutMs: SUBMIT_TIMEOUT_MS });
-        if (!mountedRef.current) return;
+        if (!mountedRef.current) return { ok: true };
 
         setQueueItems((prev) =>
           prev.map((item) =>
@@ -503,6 +549,7 @@ export default function Generator({
         }
 
         void pollSingleJob(localId, created.jobId);
+        return { ok: true, localId, jobId: created.jobId };
       } catch (error) {
         let recovered: GenerationRecord | null = null;
         try {
@@ -518,6 +565,7 @@ export default function Generator({
               return false;
             }
             return (
+              item.lane === "generator" &&
               normalizePrompt(item.prompt) === targetPrompt &&
               item.model === input.model &&
               item.aspectRatio === input.aspectRatio &&
@@ -537,7 +585,7 @@ export default function Generator({
           recovered = null;
         }
 
-        if (!mountedRef.current) return;
+        if (!mountedRef.current) return { ok: false, error: "Generator is unavailable" };
 
         if (recovered) {
           imageLoadRetriesRef.current.delete(localId);
@@ -572,7 +620,7 @@ export default function Generator({
             }
             invalidateHistoryCache();
           }
-          return;
+          return { ok: true, localId, jobId: recovered.id };
         }
 
         const message = error instanceof Error ? error.message : "加入生成队列失败";
@@ -596,14 +644,34 @@ export default function Generator({
           // Keep queue item error as primary feedback.
         }
         invalidateHistoryCache();
+        return { ok: false, error: message };
       } finally {
         if (mountedRef.current) {
           setSubmittingCount((prev) => Math.max(0, prev - 1));
         }
       }
+
+      return { ok: true, localId };
     },
     [invalidateHistoryCache, onGenerationDone, pollSingleJob],
   );
+
+  useEffect(() => {
+    const handleExternalSubmit = (event: Event) => {
+      const detail = (event as CustomEvent<GeneratorSubmitEventDetail>).detail;
+      if (!detail?.input) return;
+
+      void (async () => {
+        const result = await submitTask(detail.input, detail.options);
+        detail.respond?.(result);
+      })();
+    };
+
+    window.addEventListener(GENERATOR_SUBMIT_EVENT, handleExternalSubmit as EventListener);
+    return () => {
+      window.removeEventListener(GENERATOR_SUBMIT_EVENT, handleExternalSubmit as EventListener);
+    };
+  }, [submitTask]);
 
   const handleGenerate = () => {
     if (effectiveCredits === null) {
@@ -690,6 +758,75 @@ export default function Generator({
     e.dataTransfer.setData("text/uri-list", imageUrl);
     e.dataTransfer.setData("text/plain", imageUrl);
   };
+
+  const modalGalleryItems = useMemo(
+    () =>
+      queueItems
+        .filter((item) => Boolean(item.imageUrl || item.placeholderSourceUrl))
+        .map((item) => ({
+          id: item.localId,
+          url: (item.imageUrl ?? item.placeholderSourceUrl) as string,
+          prompt: item.promptSnapshot,
+          model: item.model,
+          imageSize: item.imageSize,
+          aspectRatio: item.aspectRatio,
+          referenceImages: item.referenceImages,
+          mode: "generator" as const,
+          status: item.status,
+          error: item.error,
+        })),
+    [queueItems],
+  );
+
+  const modalSelectedIndex = useMemo(() => {
+    if (!modalSelectedLocalId) return 0;
+    const index = modalGalleryItems.findIndex((item) => item.id === modalSelectedLocalId);
+    return index >= 0 ? index : 0;
+  }, [modalGalleryItems, modalSelectedLocalId]);
+  const modalSelectedItem = useMemo(
+    () => modalGalleryItems.find((item) => item.id === modalSelectedLocalId) ?? null,
+    [modalGalleryItems, modalSelectedLocalId],
+  );
+
+  const handleRegenerate = useCallback(
+    async ({ prompt: nextPrompt, referenceImages, model, imageSize, aspectRatio }: { prompt: string; referenceImages: string[]; model: ImageModel; imageSize: string; aspectRatio: string }) => {
+      const selectedItem = queueItems.find((item) => item.localId === modalSelectedLocalId) ?? null;
+      if (!selectedItem) {
+        setRegenerateError("未找到当前图片对应的任务");
+        return;
+      }
+
+      setIsRegenerating(true);
+      setRegenerateError(null);
+      const result = await submitTask(
+        {
+          prompt: nextPrompt.trim(),
+          referenceImages,
+          aspectRatio,
+          imageSize,
+          model,
+        },
+        {
+          anchorLocalId: selectedItem.localId,
+          anchorJobId: selectedItem.jobId,
+          sourceImageUrl: selectedItem.imageUrl ?? selectedItem.placeholderSourceUrl,
+          sourcePrompt: selectedItem.promptSnapshot,
+          onOptimistic: ({ localId }) => {
+            if (mountedRef.current) {
+              setModalSelectedLocalId(localId);
+            }
+          },
+        },
+      );
+      if (!result.ok) {
+        setRegenerateError(result.error ?? "提交重生成失败");
+      }
+      if (mountedRef.current) {
+        setIsRegenerating(false);
+      }
+    },
+    [modalSelectedLocalId, queueItems, submitTask],
+  );
 
   const cyclePreviewSize = () => {
     const currentIndex = PREVIEW_SIZE_ORDER.indexOf(previewSize);
@@ -947,8 +1084,8 @@ export default function Generator({
                                 decoding="async"
                                 draggable
                                 onClick={() => {
-                                  setEnlargedImage(item.imageUrl);
-                                  setEnlargedPrompt(item.promptSnapshot);
+                                  setRegenerateError(null);
+                                  setModalSelectedLocalId(item.localId);
                                 }}
                                 onDragStart={(e) => handleGeneratedImageDragStart(e, item.imageUrl)}
                                 onError={() => handleImageRenderError(item)}
@@ -995,15 +1132,28 @@ export default function Generator({
                                   </button>
                                 )}
                               </div>
+                            ) : item.placeholderSourceUrl ? (
+                              <>
+                                <img
+                                  src={item.placeholderSourceUrl}
+                                  alt="?????"
+                                  className="w-full h-full scale-[1.02] object-cover blur-sm opacity-60"
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/25">
+                                  <Loader2 className="w-5 h-5 animate-spin" />
+                                  <p className="font-mono text-[10px] uppercase tracking-widest text-center px-3">???</p>
+                                </div>
+                              </>
                             ) : (
                               <div className="w-full h-full flex flex-col items-center justify-center gap-2 opacity-70">
                                 <Loader2 className="w-5 h-5 animate-spin" />
                                 <p className="font-mono text-[10px] uppercase tracking-widest text-center px-3">
                                   {item.status === "submitting"
-                                    ? "提交中..."
+                                    ? "?????.."
                                     : item.status === "queued"
-                                      ? "排队中..."
-                                      : "生成中..."}
+                                      ? "?????.."
+                                      : "?????.."}
                                 </p>
                               </div>
                             )}
@@ -1047,13 +1197,27 @@ export default function Generator({
         </div>
       </div>
 
-      {enlargedImage && (
+      {modalSelectedLocalId && modalSelectedItem && (
         <ImageModal
-          url={enlargedImage}
-          prompt={enlargedPrompt ?? undefined}
+          url={modalSelectedItem.url}
+          prompt={modalSelectedItem.prompt}
+          mode="generator"
+          referenceImages={modalSelectedItem.referenceImages}
+          items={modalGalleryItems}
+          selectedIndex={modalSelectedIndex}
+          onSelect={(index) => {
+            const item = modalGalleryItems[index];
+            if (item) {
+              setRegenerateError(null);
+              setModalSelectedLocalId(item.id);
+            }
+          }}
+          isSubmitting={isRegenerating}
+          error={regenerateError}
+          onRegenerate={handleRegenerate}
           onClose={() => {
-            setEnlargedImage(null);
-            setEnlargedPrompt(null);
+            setModalSelectedLocalId(null);
+            setRegenerateError(null);
           }}
         />
       )}

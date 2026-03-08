@@ -10,6 +10,7 @@ import type {
   FlatlayInput,
   CopyBlock,
   GenerationJobRow,
+  GenerationLane,
   InvisibleMannequinInput,
   LaunchPackInput,
   LookbookInput,
@@ -121,6 +122,7 @@ export async function createGenerationJobAtomic(params: {
   aspectRatio: string;
   imageSize: string;
   model: ImageModel;
+  lane: GenerationLane;
 }): Promise<string> {
   const { data, error } = await adminClient.rpc("create_generation_job", {
     p_user_id: params.userId,
@@ -128,6 +130,7 @@ export async function createGenerationJobAtomic(params: {
     p_aspect_ratio: params.aspectRatio,
     p_image_size: params.imageSize,
     p_model: params.model,
+    p_lane: params.lane,
     p_cost: getGenerationCost(params.model, params.imageSize),
   });
 

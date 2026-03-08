@@ -11,7 +11,8 @@ import securityRouter from "./routes/security.js";
 import { queueSnapshot } from "./services/queue.js";
 
 const app = express();
-const port = Number(process.env.PORT ?? 8787);
+const host = process.env.HOST?.trim() || "127.0.0.1";
+const port = Number(process.env.PORT ?? 8877);
 const corsOrigin = process.env.APP_ORIGIN?.split(",").map((s) => s.trim()).filter(Boolean);
 const bodyLimit = process.env.API_BODY_LIMIT?.trim() || "80mb";
 const apiDebugLog = process.env.API_DEBUG_LOG !== "0";
@@ -94,6 +95,22 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   res.status(500).json({ error: message });
 });
 
-app.listen(port, () => {
-  console.log(`Genesis API listening on http://localhost:${port}`);
+const server = app.listen(port, host, () => {
+  console.log(`Genesis API listening on http://${host}:${port}`);
+});
+
+server.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EACCES") {
+    console.error(
+      `Failed to bind Genesis API on ${host}:${port}. On Windows this often means the port is reserved by the system. Update HOST/PORT in .env and restart.`,
+    );
+    process.exit(1);
+  }
+
+  if (error.code === "EADDRINUSE") {
+    console.error(`Genesis API port ${port} is already in use on ${host}. Update PORT in .env and restart.`);
+    process.exit(1);
+  }
+
+  throw error;
 });

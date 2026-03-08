@@ -77,11 +77,13 @@ npm run dev
 This starts:
 
 - Frontend: `http://localhost:3000`
-- Backend API: `http://localhost:8787`
+- Backend API: `http://127.0.0.1:8877`
 
 Vite proxies `/api/*` to backend during development.
 
 If you are using local Supabase, start it before `npm run dev`.
+
+On Windows, if a port is reserved by the system, update `HOST`/`PORT` in `.env` and restart both Vite and the API server.
 
 ## 3) Build
 

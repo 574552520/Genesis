@@ -137,19 +137,27 @@ function normalizeTryOnInput(body: any): TryOnInput {
 }
 
 function normalizeLookbookInput(body: any): LookbookInput {
+  const lookbookMode = body?.lookbookMode === "count_input" ? "count_input" : "angle_preset";
   const selectedAngles = parseStringArray(body?.selectedAngles).filter((x): x is LookbookAngle =>
     validLookbookAngles.has(x as LookbookAngle),
   );
   const requestedCountRaw = Number(body?.requestedCount ?? body?.imageTaskCount ?? 6);
   const manualCount = Number.isFinite(requestedCountRaw) ? clamp(Math.floor(requestedCountRaw), 1, 6) : 6;
-  const requestedCount = selectedAngles.length > 0 ? selectedAngles.length : manualCount;
+  const finalSelectedAngles: LookbookAngle[] = lookbookMode === "angle_preset"
+    ? (selectedAngles.length > 0 ? selectedAngles : ["front"])
+    : [];
+  const requestedCount = lookbookMode === "angle_preset"
+    ? Math.max(1, finalSelectedAngles.length || 1)
+    : manualCount;
 
   return {
     mode: "lookbook",
+    lookbookMode,
     ...normalizeBaseSettings({ ...body, imageTaskCount: requestedCount }),
     baseModelImage: typeof body?.baseModelImage === "string" ? body.baseModelImage.trim() : null,
+    backReferenceImage: typeof body?.backReferenceImage === "string" ? body.backReferenceImage.trim() : null,
     referenceImages: parseStringArray(body?.referenceImages).slice(0, 6),
-    selectedAngles,
+    selectedAngles: finalSelectedAngles,
     requestedCount,
     descriptionPrompt: typeof body?.descriptionPrompt === "string" ? body.descriptionPrompt.trim() : undefined,
   };
@@ -174,6 +182,7 @@ function normalizeFlatlayInput(body: any, mode: "flatlay" | "invisible_mannequin
 function normalizeGenerateRequest(body: any): CommerceGenerateRequest {
   const mode = validModes.has(body?.mode) ? (body.mode as CommerceMode) : "launch_pack";
   const payload = body?.input && typeof body.input === "object" ? body.input : body;
+  const editMode = body?.editMode === true;
 
   let input: CommerceModuleInput;
   if (mode === "try_on") {
@@ -188,7 +197,7 @@ function normalizeGenerateRequest(body: any): CommerceGenerateRequest {
     input = normalizeLaunchPackInput(payload);
   }
 
-  return { mode, input };
+  return { mode, input, editMode };
 }
 
 function validateRequest(request: CommerceGenerateRequest): string | null {
@@ -266,6 +275,7 @@ router.post("/pack/generate", async (req, res) => {
             aspectRatio: task.aspectRatio,
             imageSize: task.imageSize,
             model: task.model,
+            lane: request.mode,
           });
 
           enqueueGenerationJob({

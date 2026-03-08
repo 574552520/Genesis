@@ -115,11 +115,12 @@ function resolveLookbookPlan(input: LookbookInput): {
   targetCount: number;
   angleDriven: boolean;
 } {
-  const selectedAngles = Array.from(new Set(input.selectedAngles));
-  if (selectedAngles.length > 0) {
+  const lookbookMode = input.lookbookMode === "count_input" ? "count_input" : "angle_preset";
+  const selectedAngles = lookbookMode === "angle_preset" ? Array.from(new Set(input.selectedAngles)) : [];
+  if (lookbookMode === "angle_preset") {
     return {
       selectedAngles,
-      targetCount: selectedAngles.length,
+      targetCount: Math.max(1, selectedAngles.length || 1),
       angleDriven: true,
     };
   }
@@ -130,6 +131,47 @@ function resolveLookbookPlan(input: LookbookInput): {
     targetCount,
     angleDriven: false,
   };
+}
+
+function generateEditCommerceDraft(request: CommerceGenerateRequest): CommerceDraft {
+  const input = request.input;
+  const prompt = typeof input.descriptionPrompt === "string" ? input.descriptionPrompt.trim() : "";
+  const title =
+    request.mode === "lookbook"
+      ? "lookbook edit"
+      : request.mode === "try_on"
+        ? "try-on edit"
+        : request.mode === "flatlay"
+          ? "flatlay edit"
+          : request.mode === "invisible_mannequin_3d"
+            ? "3d edit"
+            : "detail edit";
+
+  return {
+    copyBlocks: [],
+    titleCandidates: [],
+    keywords: [request.mode, "edit"],
+    qualityWarnings: [],
+    imageTasks: [
+      makeTask({
+        id: `${request.mode}-edit-1`,
+        title,
+        prompt,
+        aspectRatio: input.aspectRatio,
+        imageSize: input.imageSize,
+        model: input.model,
+        referenceImages: dedupeTrimmed(input.referenceImages || [], 12),
+      }),
+    ],
+  };
+}
+
+function buildLookbookReferenceImages(input: LookbookInput, angle: LookbookAngle): string[] {
+  const refs = dedupeTrimmed([...(input.referenceImages || []), input.baseModelImage || ""], 12);
+  if (input.lookbookMode === "angle_preset" && angle === "back" && input.backReferenceImage) {
+    return dedupeTrimmed([...refs, input.backReferenceImage], 12);
+  }
+  return refs;
 }
 
 function buildLookbookAnglePrompt(
@@ -162,8 +204,6 @@ function buildLookbookAnglePrompt(
 
 function generateLookbookDraftFromTemplates(input: LookbookInput): CommerceDraft {
   if (!input.baseModelImage) throw new Error("Lookbook requires one base model image");
-  const baseModelImage = input.baseModelImage;
-  const extraRefs = dedupeTrimmed(input.referenceImages || []);
 
   const { selectedAngles, angleDriven } = resolveLookbookPlan(input);
   if (!angleDriven || selectedAngles.length < 1) {
@@ -178,7 +218,7 @@ function generateLookbookDraftFromTemplates(input: LookbookInput): CommerceDraft
       aspectRatio: input.aspectRatio,
       imageSize: input.imageSize,
       model: input.model,
-      referenceImages: dedupeTrimmed([baseModelImage, ...extraRefs]),
+      referenceImages: buildLookbookReferenceImages(input, angle),
     }),
   );
 
@@ -728,7 +768,6 @@ function fallbackTryOn(input: TryOnInput): CommerceDraft {
 
 function fallbackLookbook(input: LookbookInput): CommerceDraft {
   const { selectedAngles, targetCount, angleDriven } = resolveLookbookPlan(input);
-  const extraRefs = dedupeTrimmed(input.referenceImages || []);
   const imageTasks = Array.from({ length: targetCount }).map((_, idx) => {
     const angle = selectedAngles[idx] ?? nextAngle(idx, selectedAngles);
     return makeTask({
@@ -745,7 +784,7 @@ function fallbackLookbook(input: LookbookInput): CommerceDraft {
       aspectRatio: input.aspectRatio,
       imageSize: input.imageSize,
       model: input.model,
-      referenceImages: input.baseModelImage ? dedupeTrimmed([input.baseModelImage, ...extraRefs]) : extraRefs,
+      referenceImages: buildLookbookReferenceImages(input, angle),
     });
   });
   return {
@@ -926,7 +965,6 @@ async function callTextLlm(params: {
 async function generateLookbookDraftStrict(input: LookbookInput): Promise<CommerceDraft> {
   if (!input.baseModelImage) throw new Error("Lookbook requires one base model image");
   const baseModelImage = input.baseModelImage;
-  const extraRefs = dedupeTrimmed(input.referenceImages || []);
   const lingkeApiBaseUrl = process.env.LINGKE_API_BASE_URL ?? "https://lingkeapi.com";
   const lingkeApiKey = process.env.LINGKE_API_KEY ?? process.env.GEMINI_API_KEY;
   const lingkeBearerToken = process.env.LINGKE_BEARER_TOKEN ?? lingkeApiKey;
@@ -940,9 +978,14 @@ async function generateLookbookDraftStrict(input: LookbookInput): Promise<Commer
     `Generate exactly ${targetCount} image tasks.`,
     angleDriven
       ? `Angles to prioritize: ${selectedAngles.join(",")}.`
-      : "No fixed angle constraint: keep same environment but randomize pose, camera distance, and body orientation.",
+      : "No fixed angle constraint: keep same environment and lighting while varying pose, camera distance, and body orientation.",
     "Every task prompt must be clearly different in pose and framing.",
+    "All images must be from one coherent set: same environment, same styling language, same model identity.",
+    "Do not repeat pose, limb arrangement, or camera framing across tasks.",
     "Keep outfit identity and model identity aligned to reference image.",
+    input.lookbookMode === "angle_preset" && input.backReferenceImage
+      ? "When angle is back, align garment rear details with the provided back reference image."
+      : "Do not use back-only reference constraints.",
     "Output schema:",
     JSON.stringify({
       imageTasks: [{ id: "string", title: "string", prompt: "string", angle: "front|side|back(optional)" }],
@@ -969,7 +1012,11 @@ async function generateLookbookDraftStrict(input: LookbookInput): Promise<Commer
       contents: [
         {
           role: "user",
-          parts: [{ text: instruction }, dataUrlToInlinePart(baseModelImage)],
+          parts: [
+            { text: instruction },
+            dataUrlToInlinePart(baseModelImage),
+            ...(input.lookbookMode === "angle_preset" && input.backReferenceImage ? [dataUrlToInlinePart(input.backReferenceImage)] : []),
+          ],
         },
       ],
       generationConfig: {
@@ -999,7 +1046,7 @@ async function generateLookbookDraftStrict(input: LookbookInput): Promise<Commer
       aspectRatio: input.aspectRatio,
       imageSize: input.imageSize,
       model: input.model,
-      referenceImages: dedupeTrimmed([baseModelImage, ...extraRefs]),
+      referenceImages: buildLookbookReferenceImages(input, angle),
     });
   });
 
@@ -1020,14 +1067,18 @@ async function generateLookbookDraftStrict(input: LookbookInput): Promise<Commer
 }
 
 export async function generateCommerceDraft(request: CommerceGenerateRequest): Promise<CommerceDraft> {
+  if (request.editMode) {
+    logLlm("draft.mode", { mode: request.mode, source: "edit_mode" });
+    return generateEditCommerceDraft(request);
+  }
+
   if (request.mode === "launch_pack") {
     logLlm("draft.mode", { mode: request.mode, source: "llm_launch_pack" });
     return generateLaunchPackDraftStrict(request.input as LaunchPackInput);
   }
   if (request.mode === "lookbook") {
     const lookbookInput = request.input as LookbookInput;
-    const { angleDriven } = resolveLookbookPlan(lookbookInput);
-    if (angleDriven) {
+    if (lookbookInput.lookbookMode !== "count_input") {
       logLlm("draft.mode", { mode: request.mode, source: "lookbook_templates" });
       return generateLookbookDraftFromTemplates(lookbookInput);
     }

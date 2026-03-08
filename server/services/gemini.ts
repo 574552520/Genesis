@@ -13,6 +13,50 @@ function sanitizeEndpoint(endpoint: string): string {
 
 type InlineDataStyle = "inline_data" | "inlineData";
 
+function sanitizeReferenceUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname}`;
+  } catch {
+    return value.slice(0, 120);
+  }
+}
+
+async function normalizeReferenceImageToPart(image: string): Promise<Record<string, unknown> | null> {
+  const [header, data] = image.split(",");
+  if (header && data && header.startsWith("data:")) {
+    const mimeType = header.split(";")[0].replace("data:", "");
+    return {
+      inline_data: {
+        data,
+        mime_type: mimeType,
+      },
+    };
+  }
+
+  if (!/^https?:\/\//i.test(image)) {
+    return null;
+  }
+
+  const response = await fetch(image);
+  if (!response.ok) {
+    throw new Error(`Reference image fetch failed (${response.status})`);
+  }
+
+  const mimeType = (response.headers.get("content-type") ?? "").split(";")[0].trim();
+  if (!mimeType.startsWith("image/")) {
+    throw new Error(`Unsupported reference image content type: ${mimeType || "unknown"}`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return {
+    inline_data: {
+      data: buffer.toString("base64"),
+      mime_type: mimeType,
+    },
+  };
+}
+
 function buildRequestPayload(params: {
   parts: Array<Record<string, unknown>>;
   aspectRatio: string;
@@ -101,20 +145,22 @@ export async function generateImageBuffer(params: {
   }
 
   const parts: Array<Record<string, unknown>> = [];
-
-  for (const img of params.referenceImages) {
-    const [header, data] = img.split(",");
-    if (!header || !data || !header.startsWith("data:")) {
-      continue;
-    }
-    const mimeType = header.split(";")[0].replace("data:", "");
-    parts.push({
-      inline_data: {
-        data,
-        mime_type: mimeType,
-      },
-    });
-  }
+  const normalizedParts = await Promise.all(
+    params.referenceImages.map(async (image, index) => {
+      try {
+        return await normalizeReferenceImageToPart(image);
+      } catch (error) {
+        logImageApi("reference.normalize_error", {
+          mode: params.lane ?? "unknown",
+          index,
+          source: sanitizeReferenceUrl(image),
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return null;
+      }
+    }),
+  );
+  parts.push(...normalizedParts.filter((part): part is Record<string, unknown> => Boolean(part)));
 
   const trimmedPrompt = params.prompt.trim();
   const finalPrompt = trimmedPrompt
@@ -158,6 +204,7 @@ export async function generateImageBuffer(params: {
           imageSize: params.imageSize,
           aspectRatio: params.aspectRatio,
           referenceImages: params.referenceImages.length,
+          normalizedReferenceImages: parts.length - 1,
           promptLen: finalPrompt.length,
           responseModalities,
         });

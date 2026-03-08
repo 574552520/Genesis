@@ -5,6 +5,8 @@ import { api } from "../lib/api";
 import ImageModal from "./ImageModal";
 import type {
   CommerceGenerateRequest,
+  LookbookAngle,
+  LookbookMode,
   CommerceMode,
   CommerceModuleInput,
   CommercePack,
@@ -38,7 +40,11 @@ const MODE_LABEL: Record<CommerceMode, string> = {
 
 const GARMENT_MAIN = ["上装", "下装", "套装", "功能服"];
 const ASPECT_RATIO_OPTIONS = ["1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2"];
-const LOOKBOOK_PRESET_OPTIONS = [2, 3, 4, 6] as const;
+const LOOKBOOK_ANGLE_OPTIONS: Array<{ value: LookbookAngle; label: string }> = [
+  { value: "front", label: "正面" },
+  { value: "side", label: "侧面" },
+  { value: "back", label: "背面" },
+];
 const LAUNCH_COUNT_OPTIONS = [2, 4, 6, 8, 10] as const;
 const LAUNCH_PLATFORM_LABEL: Record<LaunchPackInput["platform"], string> = { taobao: "淘宝", douyin: "抖音", amazon: "亚马逊" };
 const LAUNCH_PHOTO_STYLE_LABEL: Record<LaunchPackInput["photographyStyle"], string> = { minimal_white: "极简白底", lifestyle_light: "轻场景电商", premium_texture: "高级质感", promo_impact: "强促销信息感" };
@@ -49,6 +55,7 @@ type UploadField =
   | "sceneReferenceImages"
   | "modelReferenceImages"
   | "baseModelImage"
+  | "backReferenceImage"
   | "frontImage"
   | "backImage";
 
@@ -67,17 +74,22 @@ type ModalState = {
 
 type ActiveTaskCard = {
   cardId: string;
+  stableId?: string;
+  resolvedId?: string | null;
   createdAt: string;
   title: string;
   prompt: string;
+  aspectRatio: string;
+  imageSize: string;
   imageUrl: string | null;
+  placeholderSourceUrl?: string | null;
+  anchorCardId?: string | null;
+  localOnly?: boolean;
   status: string;
   model: "pro" | "v2";
   error: string | null;
   referenceImages: string[];
 };
-
-type LookbookMode = "preset" | "custom";
 
 type PollErrorState = Record<string, string>;
 
@@ -130,8 +142,10 @@ function defaultForm(mode: CommerceMode): CommerceModuleInput {
     return {
       mode,
       ...common,
+      lookbookMode: "angle_preset",
       baseModelImage: null,
-      selectedAngles: [],
+      backReferenceImage: null,
+      selectedAngles: ["front", "side", "back"],
       requestedCount: 3,
       descriptionPrompt: "",
       imageTaskCount: 3,
@@ -155,6 +169,28 @@ function defaultForm(mode: CommerceMode): CommerceModuleInput {
 
 function dedupe(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).slice(0, 6);
+}
+
+function insertTaskCardsAfter(items: ActiveTaskCard[], inserted: ActiveTaskCard[]): ActiveTaskCard[] {
+  const merged = [...items];
+  for (const card of inserted) {
+    const anchorId = card.anchorCardId;
+    if (!anchorId) {
+      merged.unshift(card);
+      continue;
+    }
+    const anchorIndex = merged.findIndex((item) => item.cardId === anchorId);
+    if (anchorIndex < 0) {
+      merged.unshift(card);
+      continue;
+    }
+    let insertIndex = anchorIndex;
+    while (insertIndex + 1 < merged.length && merged[insertIndex + 1].anchorCardId === anchorId) {
+      insertIndex += 1;
+    }
+    merged.splice(insertIndex + 1, 0, card);
+  }
+  return merged;
 }
 
 function statusLabel(status: string): string {
@@ -195,6 +231,33 @@ function arePackTasksEqual(left: CommercePack, right: CommercePack): boolean {
       task.prompt === other.prompt
     );
   });
+}
+
+function mergePackWithStableSucceededUrls(current: CommercePack, incoming: CommercePack): CommercePack {
+  if (current.imageTasks.length === 0 || incoming.imageTasks.length === 0) return incoming;
+
+  const currentByTaskId = new Map(current.imageTasks.map((task) => [task.id, task]));
+  const mergedTasks = incoming.imageTasks.map((nextTask) => {
+    const currentTask = currentByTaskId.get(nextTask.id);
+    if (!currentTask) return nextTask;
+
+    const shouldKeepCurrentSucceededUrl =
+      currentTask.status === "succeeded" &&
+      Boolean(currentTask.imageUrl) &&
+      nextTask.status === "succeeded";
+
+    if (!shouldKeepCurrentSucceededUrl) return nextTask;
+
+    return {
+      ...nextTask,
+      imageUrl: currentTask.imageUrl,
+    };
+  });
+
+  return {
+    ...incoming,
+    imageTasks: mergedTasks,
+  };
 }
 
 function HelpLabel({ title, tip }: { title: string; tip: string }) {
@@ -242,14 +305,16 @@ function UploadZone({ zoneId, label, hint, dragOver, onPick, onDragOver, onDragL
     </button>
   );
 }
-function PreviewCard({ title, image, onOpen, onRemove }: { title: string; image?: string | null; onOpen: (url: string) => void; onRemove?: () => void; }) {
+function PreviewCard({ title, image, onOpen, onRemove, hideMeta = false }: { title: string; image?: string | null; onOpen: (url: string) => void; onRemove?: () => void; hideMeta?: boolean; }) {
   if (!image) return null;
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <p className="text-[11px] uppercase tracking-wide opacity-80">{title}</p>
-        <p className="font-mono text-[10px] uppercase opacity-70">1/1</p>
-      </div>
+    <div className={hideMeta ? "" : "space-y-2"}>
+      {!hideMeta ? (
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] uppercase tracking-wide opacity-80">{title}</p>
+          <p className="font-mono text-[10px] uppercase opacity-70">1/1</p>
+        </div>
+      ) : null}
       <div className="relative rounded-xl overflow-hidden border border-white/10">
         <button type="button" onClick={() => onOpen(image)} className="block w-full aspect-[3/4] bg-[#0a0f14]"><img src={image} alt={title} className="w-full h-full object-cover" /></button>
         {onRemove ? <button type="button" onClick={onRemove} className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-[10px] border border-white/30">移除</button> : null}
@@ -286,12 +351,9 @@ function SectionToggle({ title, count, open, onToggle }: { title: string; count:
 function GarmentInputs({ activeMode, garment, dragOver, setDragOver, openPicker, handleDrop, removeSingleImage, setField, setModal }: any) {
   return (
     <>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between"><p className="text-[11px] uppercase tracking-wide opacity-80">正背面服装图</p><p className="font-mono text-[10px] uppercase opacity-55">左正面 / 右背面</p></div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {garment.frontImage ? <PreviewCard title="正面图" image={garment.frontImage} onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "frontImage")} /> : <UploadZone zoneId={`${activeMode}-front`} label="上传正面图" hint="支持点击或拖拽上传" dragOver={dragOver} onPick={() => openPicker(activeMode, "frontImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "frontImage", true, z)} />}
-          {garment.backImage ? <PreviewCard title="背面图" image={garment.backImage} onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "backImage")} /> : <UploadZone zoneId={`${activeMode}-back`} label="上传背面图" hint="支持点击或拖拽上传" dragOver={dragOver} onPick={() => openPicker(activeMode, "backImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "backImage", true, z)} />}
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {garment.frontImage ? <PreviewCard title="正面图" image={garment.frontImage} hideMeta onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "frontImage")} /> : <UploadZone zoneId={`${activeMode}-front`} label="上传正面图" hint="支持点击或拖拽上传" dragOver={dragOver} onPick={() => openPicker(activeMode, "frontImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "frontImage", true, z)} />}
+        {garment.backImage ? <PreviewCard title="背面图" image={garment.backImage} hideMeta onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "backImage")} /> : <UploadZone zoneId={`${activeMode}-back`} label="上传背面图" hint="支持点击或拖拽上传" dragOver={dragOver} onPick={() => openPicker(activeMode, "backImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "backImage", true, z)} />}
       </div>
       <div className="grid grid-cols-2 gap-2">
         <select value={garment.generationMode} onChange={(e) => setField(activeMode, "generationMode", e.target.value)} className="bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"><option value="smart">智能模式</option><option value="reference">参考模式</option></select>
@@ -361,13 +423,20 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [pollErrors, setPollErrors] = useState<PollErrorState>({});
+  const [insertedTasks, setInsertedTasks] = useState<Record<CommerceMode, ActiveTaskCard[]>>({
+    launch_pack: [],
+    try_on: [],
+    lookbook: [],
+    flatlay: [],
+    invisible_mannequin_3d: [],
+  });
   const [modal, setModal] = useState<ModalState | null>(null);
   const [tryOnSceneOpen, setTryOnSceneOpen] = useState(false);
   const [tryOnModelOpen, setTryOnModelOpen] = useState(false);
-  const [lookbookMode, setLookbookMode] = useState<LookbookMode>("preset");
   const mountedRef = useRef(true);
   const activeModeRef = useRef<CommerceMode>("launch_pack");
   const runningPackIdsRef = useRef<string[]>([]);
+  const modalOpenRef = useRef(false);
 
   const form = forms[activeMode];
   const launch = form as Extract<CommerceModuleInput, { mode: "launch_pack" }>;
@@ -375,77 +444,173 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
   const lookbook = form as LookbookInput;
   const garment = form as Extract<CommerceModuleInput, { mode: "flatlay" }> | Extract<CommerceModuleInput, { mode: "invisible_mannequin_3d" }>;
   const activePacks = useMemo(() => packByMode[activeMode] ?? [], [packByMode, activeMode]);
-  const activeTasks = useMemo<ActiveTaskCard[]>(() => activePacks.flatMap((pack) => pack.imageTasks.map((task, index) => ({ cardId: `${pack.id}-${task.id || index}`, createdAt: pack.createdAt, title: task.title, prompt: task.prompt, imageUrl: task.imageUrl, status: task.status, model: task.model, error: task.error, referenceImages: task.referenceImages ?? [] }))), [activePacks]);
+  const mergedTasksByMode = useMemo<Record<CommerceMode, ActiveTaskCard[]>>(() => {
+    const next = {} as Record<CommerceMode, ActiveTaskCard[]>;
+    for (const mode of MODE_ORDER) {
+      const packs = packByMode[mode] ?? [];
+      const baseTasks = packs.flatMap((pack) =>
+        pack.imageTasks.map((task, index) => ({
+          cardId: `${pack.id}-${task.id || index}`,
+          stableId: `${pack.id}-${task.id || index}`,
+          resolvedId: `${pack.id}-${task.id || index}`,
+          createdAt: pack.createdAt,
+          title: task.title,
+          prompt: task.prompt,
+          aspectRatio: task.aspectRatio,
+          imageSize: task.imageSize,
+          imageUrl: task.imageUrl,
+          status: task.status,
+          model: task.model,
+          error: task.error,
+          referenceImages: task.referenceImages ?? [],
+        })),
+      );
+      const localCards = insertedTasks[mode] ?? [];
+      if (!localCards.length) {
+        next[mode] = baseTasks;
+        continue;
+      }
+      const hiddenIds = new Set(localCards.map((card) => card.cardId));
+      next[mode] = insertTaskCardsAfter(
+        baseTasks.filter((card) => !hiddenIds.has(card.cardId)),
+        localCards,
+      );
+    }
+    return next;
+  }, [insertedTasks, packByMode]);
+  const activeTasks = useMemo<ActiveTaskCard[]>(() => mergedTasksByMode[activeMode] ?? [], [activeMode, mergedTasksByMode]);
   const runningPackIds = useMemo(() => activePacks.filter((pack) => pack.imageTasks.some((task) => !isTerminal(task.status))).map((pack) => pack.id), [activePacks]);
   const activePollErrorCount = Object.keys(pollErrors).filter((packId) => runningPackIds.includes(packId)).length;
+  const isModalOpen = modal !== null;
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
   useEffect(() => { activeModeRef.current = activeMode; }, [activeMode]);
   useEffect(() => { runningPackIdsRef.current = runningPackIds; }, [runningPackIds]);
+  useEffect(() => { modalOpenRef.current = isModalOpen; }, [isModalOpen]);
+  useEffect(() => {
+    setInsertedTasks((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const mode of MODE_ORDER) {
+        const realTasks = (packByMode[mode] ?? []).flatMap((pack) =>
+          pack.imageTasks.map((task, index) => ({
+            cardId: `${pack.id}-${task.id || index}`,
+            createdAt: pack.createdAt,
+            title: task.title,
+            prompt: task.prompt,
+            aspectRatio: task.aspectRatio,
+            imageSize: task.imageSize,
+            imageUrl: task.imageUrl,
+            status: task.status,
+            model: task.model,
+            error: task.error,
+            referenceImages: task.referenceImages ?? [],
+          })),
+        );
+        const realMap = new Map<string, ActiveTaskCard>(realTasks.map((task) => [task.cardId, task]));
+        const current = prev[mode] ?? [];
+        const updated = current.map((card) => {
+          const real = realMap.get(card.cardId);
+          return real
+            ? {
+                ...card,
+                ...real,
+                stableId: card.stableId ?? card.cardId,
+                resolvedId: real.cardId,
+                placeholderSourceUrl: card.placeholderSourceUrl,
+                anchorCardId: card.anchorCardId,
+                localOnly: true,
+              }
+            : card;
+        });
+        if (JSON.stringify(updated) !== JSON.stringify(current)) {
+          next[mode] = updated;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [packByMode]);
+
+  const pollPacks = useCallback((ids: string[], mode: CommerceMode) => {
+    if (ids.length === 0) return;
+    void Promise.all(
+      ids.map(async (packId) => {
+        try {
+          const pack = await api.getCommercePack(packId);
+          return { packId, pack };
+        } catch (err) {
+          return {
+            packId,
+            error: err instanceof Error ? err.message : "结果同步失败，正在重试",
+          };
+        }
+      }),
+    ).then((results) => {
+      if (!mountedRef.current) return;
+      const valid = results.filter((result): result is { packId: string; pack: CommercePack } => "pack" in result);
+      const nextErrors: PollErrorState = {};
+      for (const result of results) {
+        if ("error" in result) {
+          nextErrors[result.packId] = result.error;
+        }
+      }
+      setPackByMode((prev) => {
+        if (!valid.length) return prev;
+        const map = new Map<string, CommercePack>(valid.map((result) => [result.pack.id, result.pack]));
+        const current = prev[mode] ?? [];
+        let changed = false;
+        const nextModePacks = current.map((pack) => {
+          const rawNextPack = map.get(pack.id);
+          if (!rawNextPack) return pack;
+          const nextPack = mergePackWithStableSucceededUrls(pack, rawNextPack);
+          if (arePackTasksEqual(pack, nextPack)) return pack;
+          changed = true;
+          return nextPack;
+        });
+        if (!changed) return prev;
+        return { ...prev, [mode]: nextModePacks };
+      });
+      setPollErrors((prev) => {
+        const merged = { ...prev };
+        for (const result of valid) {
+          delete merged[result.packId];
+        }
+        for (const [packId, message] of Object.entries(nextErrors)) {
+          merged[packId] = message;
+        }
+        for (const [packId] of Object.entries(merged)) {
+          if (!ids.includes(packId)) {
+            delete merged[packId];
+          }
+        }
+        const prevEntries = Object.entries(prev);
+        const mergedEntries = Object.entries(merged);
+        if (prevEntries.length === mergedEntries.length && prevEntries.every(([key, value]) => merged[key] === value)) {
+          return prev;
+        }
+        return merged;
+      });
+    });
+  }, []);
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       const ids = runningPackIdsRef.current;
       const mode = activeModeRef.current;
+      if (modalOpenRef.current) return;
       if (ids.length === 0) return;
-
-      void Promise.all(
-        ids.map(async (packId) => {
-          try {
-            const pack = await api.getCommercePack(packId);
-            return { packId, pack };
-          } catch (err) {
-            return {
-              packId,
-              error: err instanceof Error ? err.message : "结果同步失败，正在重试",
-            };
-          }
-        }),
-      ).then((results) => {
-        if (!mountedRef.current) return;
-        const valid = results.filter((result): result is { packId: string; pack: CommercePack } => "pack" in result);
-        const nextErrors: PollErrorState = {};
-        for (const result of results) {
-          if ("error" in result) {
-            nextErrors[result.packId] = result.error;
-          }
-        }
-        setPackByMode((prev) => {
-          if (!valid.length) return prev;
-          const map = new Map<string, CommercePack>(valid.map((result) => [result.pack.id, result.pack]));
-          const current = prev[mode] ?? [];
-          let changed = false;
-          const nextModePacks = current.map((pack) => {
-            const nextPack = map.get(pack.id);
-            if (!nextPack || arePackTasksEqual(pack, nextPack)) return pack;
-            changed = true;
-            return nextPack;
-          });
-          if (!changed) return prev;
-          return { ...prev, [mode]: nextModePacks };
-        });
-        setPollErrors((prev) => {
-          const merged = { ...prev };
-          for (const result of valid) {
-            delete merged[result.packId];
-          }
-          for (const [packId, message] of Object.entries(nextErrors)) {
-            merged[packId] = message;
-          }
-          for (const [packId] of Object.entries(merged)) {
-            if (!ids.includes(packId)) {
-              delete merged[packId];
-            }
-          }
-          const prevEntries = Object.entries(prev);
-          const mergedEntries = Object.entries(merged);
-          if (prevEntries.length === mergedEntries.length && prevEntries.every(([key, value]) => merged[key] === value)) {
-            return prev;
-          }
-          return merged;
-        });
-      });
+      pollPacks(ids, mode);
     }, 2500);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [pollPacks]);
+
+  useEffect(() => {
+    if (isModalOpen) return;
+    const ids = runningPackIdsRef.current;
+    const mode = activeModeRef.current;
+    if (ids.length === 0) return;
+    pollPacks(ids, mode);
+  }, [isModalOpen, pollPacks]);
 
   const cyclePreviewSize = useCallback(() => { const i = PREVIEW_SIZE_ORDER.indexOf(previewSize); onPreviewSizeChange(PREVIEW_SIZE_ORDER[(i + 1) % PREVIEW_SIZE_ORDER.length]); }, [onPreviewSizeChange, previewSize]);
   const setField = useCallback((mode: CommerceMode, key: string, value: unknown) => setForms((prev) => ({ ...prev, [mode]: { ...prev[mode], [key]: value } as CommerceModuleInput })), []);
@@ -465,7 +630,17 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
       return { ...input, productName: input.productName.trim(), descriptionPrompt: input.descriptionPrompt?.trim() || undefined, requestedCount, imageTaskCount: requestedCount };
     }
     if (mode === "try_on") { const input = baseForm as TryOnInput; const count = input.sceneReferenceImages.length > 0 ? input.sceneReferenceImages.length : input.imageTaskCount; return { ...input, imageTaskCount: Math.max(1, Math.min(6, Number(count) || 1)), useModelReference: input.modelReferenceImages.length > 0 }; }
-    if (mode === "lookbook") { const input = baseForm as LookbookInput; const count = Math.max(1, Math.min(6, Number(input.requestedCount) || 1)); return { ...input, requestedCount: count, imageTaskCount: count, selectedAngles: [] }; }
+    if (mode === "lookbook") {
+      const input = baseForm as LookbookInput;
+      const lookbookMode: LookbookMode = input.lookbookMode === "count_input" ? "count_input" : "angle_preset";
+      const selectedAngles = Array.from(new Set((input.selectedAngles || []).filter((angle): angle is LookbookAngle => angle === "front" || angle === "side" || angle === "back")));
+      if (lookbookMode === "count_input") {
+        const count = Math.max(1, Math.min(6, Number(input.requestedCount) || 1));
+        return { ...input, lookbookMode, requestedCount: count, imageTaskCount: count, selectedAngles: [] };
+      }
+      const count = Math.max(1, selectedAngles.length || 1);
+      return { ...input, lookbookMode, requestedCount: count, imageTaskCount: count, selectedAngles: selectedAngles.length > 0 ? selectedAngles : ["front"] };
+    }
     if (mode === "flatlay" || mode === "invisible_mannequin_3d") return { ...(baseForm as typeof garment), imageTaskCount: Math.max(1, Math.min(6, Number((baseForm as typeof garment).imageTaskCount) || 1)) };
     return baseForm;
   }, [garment]);
@@ -477,11 +652,13 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
     const input = target as typeof garment; if (!input.frontImage && !input.backImage) return "请至少上传一张：正面或背面"; if (input.generationMode === "reference" && !input.referenceImages.length) return "参考模式至少需要 1 张参考图"; return null;
   }, [garment, launch]);
 
-  const submitPack = useCallback(async (mode: CommerceMode, baseForm: CommerceModuleInput) => { const input = normalizeInput(mode, baseForm); const validation = validate(mode, input); if (validation) throw new Error(validation); const created = await api.generateCommercePack({ mode, input } as CommerceGenerateRequest); if (created.pack) insertPack(mode, created.pack); else insertPack(mode, await api.getCommercePack(created.packId)); await onRefreshProfile(); }, [insertPack, normalizeInput, onRefreshProfile, validate]);
+  const submitPack = useCallback(async (mode: CommerceMode, baseForm: CommerceModuleInput, editMode = false) => { const input = normalizeInput(mode, baseForm); const validation = validate(mode, input); if (validation) throw new Error(validation); const created = await api.generateCommercePack({ mode, input, editMode } as CommerceGenerateRequest); const pack = created.pack ?? await api.getCommercePack(created.packId); insertPack(mode, pack); await onRefreshProfile(); return pack; }, [insertPack, normalizeInput, onRefreshProfile, validate]);
   const submit = async () => { setError(""); setIsSubmitting(true); try { await submitPack(activeMode, form); } catch (err) { setError(err instanceof Error ? err.message : "创建任务失败"); } finally { if (mountedRef.current) setIsSubmitting(false); } };
-  const handleRegenerate = useCallback(async ({ prompt, referenceImages }: { prompt: string; referenceImages: string[] }) => {
+  const handleRegenerate = useCallback(async ({ prompt, referenceImages, model, imageSize, aspectRatio }: { prompt: string; referenceImages: string[]; model: "pro" | "v2"; imageSize: string; aspectRatio: string }) => {
     const targetMode = modal?.kind === "gallery" ? modal.mode : activeMode;
     const targetForm = forms[targetMode];
+    const anchorCardId = modal?.kind === "gallery" ? modal.selectedCardId : null;
+    const anchorCard = modal?.kind === "gallery" ? activeTasks.find((task) => task.cardId === modal.selectedCardId) ?? null : null;
     const nextPrompt = prompt.trim() || undefined;
     const mergedRefs = dedupe(referenceImages);
     let nextInput: CommerceModuleInput;
@@ -490,67 +667,152 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
       const input = targetForm as LaunchPackInput;
       nextInput = {
         ...input,
+        model,
+        imageSize,
+        aspectRatio,
+        requestedCount: 1,
+        imageTaskCount: 1,
         descriptionPrompt: nextPrompt,
-        referenceImages: dedupe([...(input.referenceImages ?? []), ...mergedRefs]),
+        referenceImages: mergedRefs,
       };
     } else if (targetMode === "try_on") {
       const input = targetForm as TryOnInput;
       nextInput = {
         ...input,
+        model,
+        imageSize,
+        aspectRatio,
+        imageTaskCount: 1,
         descriptionPrompt: nextPrompt,
-        referenceImages: dedupe([...(input.referenceImages ?? []), ...mergedRefs]),
+        referenceImages: mergedRefs,
       };
     } else if (targetMode === "lookbook") {
       const input = targetForm as LookbookInput;
       nextInput = {
         ...input,
+        model,
+        imageSize,
+        aspectRatio,
+        requestedCount: 1,
+        imageTaskCount: 1,
         descriptionPrompt: nextPrompt,
-        referenceImages: dedupe([...(input.referenceImages ?? []), ...mergedRefs]),
+        referenceImages: mergedRefs,
       };
     } else {
       const input = targetForm as Extract<CommerceModuleInput, { mode: "flatlay" }> | Extract<CommerceModuleInput, { mode: "invisible_mannequin_3d" }>;
       nextInput = {
         ...input,
+        model,
+        imageSize,
+        aspectRatio,
+        imageTaskCount: 1,
         descriptionPrompt: nextPrompt,
-        referenceImages: dedupe([...(input.referenceImages ?? []), ...mergedRefs]),
+        referenceImages: mergedRefs,
       } as CommerceModuleInput;
     }
 
     setIsRegenerating(true);
     setRegenerateError(null);
     try {
-      await submitPack(targetMode, nextInput);
+      const pack = await submitPack(targetMode, nextInput, true);
+      if (anchorCardId && anchorCard) {
+        const nextCards = pack.imageTasks.map((task, index) => ({
+          cardId: `${pack.id}-${task.id || index}`,
+          stableId: `${pack.id}-${task.id || index}`,
+          resolvedId: `${pack.id}-${task.id || index}`,
+          createdAt: pack.createdAt,
+          title: task.title,
+          prompt: task.prompt,
+          aspectRatio: task.aspectRatio,
+          imageSize: task.imageSize,
+          imageUrl: task.imageUrl,
+          placeholderSourceUrl: anchorCard.imageUrl ?? anchorCard.placeholderSourceUrl ?? null,
+          anchorCardId,
+          localOnly: true,
+          status: task.status,
+          model: task.model,
+          error: task.error,
+          referenceImages: task.referenceImages ?? mergedRefs,
+        }));
+        setInsertedTasks((prev) => ({
+          ...prev,
+          [targetMode]: [...(prev[targetMode] ?? []), ...nextCards],
+        }));
+        if (nextCards[0]) {
+          setModal({ kind: "gallery", mode: targetMode, selectedCardId: nextCards[0].cardId });
+        }
+      }
     } catch (err) {
       setRegenerateError(err instanceof Error ? err.message : "提交重生成失败");
     } finally {
       if (mountedRef.current) setIsRegenerating(false);
     }
-  }, [activeMode, forms, modal, submitPack]);
+  }, [activeMode, activeTasks, forms, modal, submitPack]);
 
   const modalGalleryItems = useMemo(() => {
     if (!modal || modal.kind !== "gallery") return [];
-    const packs = packByMode[modal.mode] ?? [];
-    return packs.flatMap((pack) =>
-      pack.imageTasks
-        .filter((task) => task.imageUrl)
-        .map((task, index) => ({
-          id: `${pack.id}-${task.id || index}`,
-          url: task.imageUrl as string,
-          title: task.title,
-          prompt: task.prompt,
-          referenceImages: task.referenceImages ?? [],
-          mode: modal.mode,
-        })),
-    );
-  }, [modal, packByMode]);
+    const tasks = mergedTasksByMode[modal.mode] ?? [];
+    return tasks
+      .filter((task) => Boolean(task.imageUrl || task.placeholderSourceUrl))
+      .map((task) => ({
+        id: task.cardId,
+        stableId: task.stableId ?? task.cardId,
+        resolvedId: task.resolvedId ?? task.cardId,
+        url: (task.imageUrl ?? task.placeholderSourceUrl) as string,
+        title: task.title,
+        prompt: task.prompt,
+        model: task.model,
+        imageSize: task.imageSize,
+        aspectRatio: task.aspectRatio,
+        referenceImages: task.referenceImages ?? [],
+        mode: modal.mode,
+        status: task.status as "queued" | "processing" | "succeeded" | "failed",
+        error: task.error,
+      }));
+  }, [mergedTasksByMode, modal]);
 
   const modalSelectedIndex = useMemo(() => {
     if (!modal || modal.kind !== "gallery") return 0;
     const index = modalGalleryItems.findIndex((item) => item.id === modal.selectedCardId);
     return index >= 0 ? index : 0;
   }, [modal, modalGalleryItems]);
-  const applyLookbookPreset = (count: number) => { setLookbookMode("preset"); setField("lookbook", "requestedCount", count); setField("lookbook", "imageTaskCount", count); setField("lookbook", "selectedAngles", []); };
-  const handleLookbookCountChange = (count: number) => { const next = Math.max(1, Math.min(6, Number(count) || 1)); setLookbookMode("custom"); setField("lookbook", "requestedCount", next); setField("lookbook", "imageTaskCount", next); setField("lookbook", "selectedAngles", []); };
+  const modalSelectedItem = useMemo(() => {
+    if (!modal || modal.kind !== "gallery") return null;
+    return modalGalleryItems.find((item) => item.id === modal.selectedCardId) ?? null;
+  }, [modal, modalGalleryItems]);
+  const switchLookbookMode = (mode: LookbookMode) => {
+    if (mode === "count_input") {
+      const count = Math.max(1, Math.min(6, Number(lookbook.requestedCount) || 1));
+      setField("lookbook", "lookbookMode", "count_input");
+      setField("lookbook", "selectedAngles", []);
+      setField("lookbook", "requestedCount", count);
+      setField("lookbook", "imageTaskCount", count);
+      return;
+    }
+    const fallbackAngles = (lookbook.selectedAngles || []).length > 0 ? lookbook.selectedAngles : ["front", "side", "back"];
+    const selectedAngles = Array.from(new Set(fallbackAngles.filter((item): item is LookbookAngle => item === "front" || item === "side" || item === "back")));
+    setField("lookbook", "lookbookMode", "angle_preset");
+    setField("lookbook", "selectedAngles", selectedAngles);
+    setField("lookbook", "requestedCount", Math.max(1, selectedAngles.length || 1));
+    setField("lookbook", "imageTaskCount", Math.max(1, selectedAngles.length || 1));
+  };
+  const toggleLookbookAngle = (angle: LookbookAngle) => {
+    const current = Array.from(new Set((lookbook.selectedAngles || []).filter((item): item is LookbookAngle => item === "front" || item === "side" || item === "back")));
+    const next = current.includes(angle)
+      ? (current.length > 1 ? current.filter((item) => item !== angle) : current)
+      : [...current, angle];
+    setField("lookbook", "lookbookMode", "angle_preset");
+    setField("lookbook", "selectedAngles", next);
+    setField("lookbook", "requestedCount", Math.max(1, next.length || 1));
+    setField("lookbook", "imageTaskCount", Math.max(1, next.length || 1));
+  };
+  const handleLookbookCountChange = (countRaw: number) => {
+    const count = Math.max(1, Math.min(6, Number(countRaw) || 1));
+    setField("lookbook", "lookbookMode", "count_input");
+    setField("lookbook", "selectedAngles", []);
+    setField("lookbook", "requestedCount", count);
+    setField("lookbook", "imageTaskCount", count);
+  };
 
   const activeCount = activeTasks.filter((task) => !isTerminal(task.status)).length;
   const queuedCount = activeTasks.filter((task) => task.status === "queued").length;
@@ -562,11 +824,51 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
       {error ? <div className="mb-4 p-3 border rounded-lg text-xs bg-red-500/20 border-red-300/40 text-red-200 shrink-0">{error}</div> : null}
       <div className="min-h-0 flex-1 grid grid-cols-1 xl:grid-cols-12 gap-5 overflow-hidden">
         <section className="xl:col-span-4 2xl:col-span-3 min-h-0 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#3A4A54]/20 workspace-scroll-lock">
-          <div className="sticky top-0 z-10 border-b border-white/10 bg-[#202d35]/95 px-4 py-4"><div className="flex items-start justify-between gap-4"><div><h3 className="font-display text-xl uppercase">{MODE_LABEL[activeMode]}</h3><p className="font-mono text-[10px] uppercase tracking-widest opacity-55 mt-1">参数区过长时单独滚动</p></div><button onClick={() => void submit()} disabled={isSubmitting} className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 font-mono text-xs uppercase text-[#647B8C] disabled:opacity-60">{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{isSubmitting ? "提交中..." : "开始生成"}</button></div></div>
+          <div className="sticky top-0 z-10 border-b border-white/10 bg-[#202d35]/95 px-4 py-4"><div className="flex items-start justify-between gap-4"><div><h3 className="font-display text-xl uppercase">{MODE_LABEL[activeMode]}</h3></div><button onClick={() => void submit()} disabled={isSubmitting} className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 font-mono text-xs uppercase text-[#647B8C] disabled:opacity-60">{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{isSubmitting ? "提交中..." : "开始生成"}</button></div></div>
           <div className="min-h-0 flex-1 overflow-y-auto workspace-scroll-area p-4 space-y-4">
             {activeMode === "launch_pack" ? <LaunchPackInputs launch={launch} dragOver={dragOver} setDragOver={setDragOver} openPicker={openPicker} handleDrop={handleDrop} removeArrayImage={removeArrayImage} setField={setField} setModal={setModal} /> : null}
             {activeMode === "try_on" ? <><ImagePreviewGrid title="服装图" images={tryOn.productImages} onRemove={(i) => removeArrayImage(activeMode, "productImages", i)} onOpen={(url) => setModal({ kind: "single", url })} onAdd={() => openPicker(activeMode, "productImages")} showAddSlot addZoneId="try-product-add" dragOver={dragOver} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "productImages", false, z)} /><textarea value={tryOn.descriptionPrompt || ""} onChange={(e) => setField(activeMode, "descriptionPrompt", e.target.value)} placeholder="描述服装细节、穿搭方向或背景要求（可选）" className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 min-h-[88px] text-sm" /><div className="grid grid-cols-2 gap-2"><select value={tryOn.genderCategory} onChange={(e) => setField(activeMode, "genderCategory", e.target.value)} className="bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"><option value="menswear">男装</option><option value="womenswear">女装</option><option value="unisex">中性</option></select><select value={tryOn.ageGroup} onChange={(e) => setField(activeMode, "ageGroup", e.target.value)} className="bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"><option value="adult">成人</option><option value="teen">青少年</option><option value="older_kids">大童</option><option value="middle_kids">中童</option><option value="younger_kids">小童</option><option value="toddlers">幼童</option></select></div><div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70 leading-6">系统会用你上传的服装图替换参考人物当前穿着。上传场景参考图时优先复用场景、构图与姿态；上传模特参考图时优先复用人物身份；两类都不传时会随机生成适合该服装展示的环境。</div><SectionToggle title="场景参考图" count={tryOn.sceneReferenceImages.length} open={tryOnSceneOpen} onToggle={() => setTryOnSceneOpen((prev) => !prev)} />{tryOnSceneOpen ? <><ImagePreviewGrid title="场景参考图" images={tryOn.sceneReferenceImages} onRemove={(i) => removeArrayImage(activeMode, "sceneReferenceImages", i)} onOpen={(url) => setModal({ kind: "single", url })} onAdd={() => openPicker(activeMode, "sceneReferenceImages")} showAddSlot addZoneId="try-scene-add" dragOver={dragOver} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "sceneReferenceImages", false, z)} /></> : null}<SectionToggle title="模特参考图" count={tryOn.modelReferenceImages.length} open={tryOnModelOpen} onToggle={() => setTryOnModelOpen((prev) => !prev)} />{tryOnModelOpen ? <><ImagePreviewGrid title="模特参考图" images={tryOn.modelReferenceImages} onRemove={(i) => removeArrayImage(activeMode, "modelReferenceImages", i)} onOpen={(url) => setModal({ kind: "single", url })} onAdd={() => openPicker(activeMode, "modelReferenceImages")} showAddSlot addZoneId="try-model-add" dragOver={dragOver} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "modelReferenceImages", false, z)} /></> : null}</> : null}
-            {activeMode === "lookbook" ? <>{lookbook.baseModelImage ? <PreviewCard title="基础模特图" image={lookbook.baseModelImage} onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "baseModelImage")} /> : <UploadZone zoneId="lookbook-base" label="上传基础模特图" hint="1 张即可；系统会据此生成多动作图" dragOver={dragOver} onPick={() => openPicker(activeMode, "baseModelImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "baseModelImage", true, z)} />}<textarea value={lookbook.descriptionPrompt || ""} onChange={(e) => setField(activeMode, "descriptionPrompt", e.target.value)} placeholder="补充动作风格、镜头要求、场景方向（可选）" className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 min-h-[88px] text-sm" /><div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3"><div className="flex gap-2"><button type="button" onClick={() => setLookbookMode("preset")} className={`flex-1 rounded-lg border px-3 py-2 font-mono text-[11px] uppercase ${lookbookMode === "preset" ? "bg-white text-[#647B8C]" : "border-white/20"}`}>按钮模式</button><button type="button" onClick={() => setLookbookMode("custom")} className={`flex-1 rounded-lg border px-3 py-2 font-mono text-[11px] uppercase ${lookbookMode === "custom" ? "bg-white text-[#647B8C]" : "border-white/20"}`}>输入数量</button></div>{lookbookMode === "preset" ? <div className="grid grid-cols-4 gap-2">{LOOKBOOK_PRESET_OPTIONS.map((count) => <button key={count} type="button" onClick={() => applyLookbookPreset(count)} className={`rounded-lg border px-2 py-2 text-[11px] uppercase ${lookbook.requestedCount === count ? "bg-white text-[#647B8C]" : "border-white/20"}`}>{count} 张</button>)}</div> : <input type="number" min={1} max={6} value={lookbook.requestedCount} onChange={(e) => handleLookbookCountChange(Number(e.target.value))} className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs" />}<div className="text-xs text-white/70 leading-6">系统会先用语言模型生成 {lookbook.requestedCount} 条不同动作 / 构图提示词，再交给 Banana 分别生成多张 lookbook 图像。</div></div></> : null}
+            {activeMode === "lookbook" ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {lookbook.baseModelImage ? (
+                    <PreviewCard title="基础模特图" image={lookbook.baseModelImage} onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "baseModelImage")} />
+                  ) : (
+                    <UploadZone zoneId="lookbook-base" label="上传基础模特图" hint="1 张即可；系统会据此生成多动作图" dragOver={dragOver} onPick={() => openPicker(activeMode, "baseModelImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "baseModelImage", true, z)} />
+                  )}
+                  {lookbook.backReferenceImage ? (
+                    <PreviewCard title="产品背面参考图（可选）" image={lookbook.backReferenceImage} onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "backReferenceImage")} />
+                  ) : (
+                    <UploadZone zoneId="lookbook-back-ref" label="上传产品背面参考图（可选）" hint="仅在背面任务中引用" dragOver={dragOver} onPick={() => openPicker(activeMode, "backReferenceImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "backReferenceImage", true, z)} />
+                  )}
+                </div>
+                <textarea value={lookbook.descriptionPrompt || ""} onChange={(e) => setField(activeMode, "descriptionPrompt", e.target.value)} placeholder="补充动作风格、镜头要求、场景方向（可选）" className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 min-h-[88px] text-sm" />
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => switchLookbookMode("angle_preset")} className={`rounded-lg border px-3 py-2 text-[11px] uppercase ${lookbook.lookbookMode !== "count_input" ? "bg-white text-[#647B8C]" : "border-white/20"}`}>
+                      角度预设
+                    </button>
+                    <button type="button" onClick={() => switchLookbookMode("count_input")} className={`rounded-lg border px-3 py-2 text-[11px] uppercase ${lookbook.lookbookMode === "count_input" ? "bg-white text-[#647B8C]" : "border-white/20"}`}>
+                      输入数量
+                    </button>
+                  </div>
+                  {lookbook.lookbookMode === "count_input" ? (
+                    <input type="number" min={1} max={6} value={lookbook.requestedCount} onChange={(e) => handleLookbookCountChange(Number(e.target.value))} className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs" />
+                  ) : (
+                    <div className="grid grid-cols-3 gap-2">
+                      {LOOKBOOK_ANGLE_OPTIONS.map((item) => {
+                        const selected = (lookbook.selectedAngles || []).includes(item.value);
+                        return (
+                          <button key={item.value} type="button" onClick={() => toggleLookbookAngle(item.value)} className={`rounded-lg border px-2 py-2 text-[11px] uppercase ${selected ? "bg-white text-[#647B8C]" : "border-white/20"}`}>
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : null}
             {(activeMode === "flatlay" || activeMode === "invisible_mannequin_3d") ? <GarmentInputs activeMode={activeMode} garment={garment} dragOver={dragOver} setDragOver={setDragOver} openPicker={openPicker} handleDrop={handleDrop} removeSingleImage={removeSingleImage} setField={setField} setModal={setModal} /> : null}
             <HelpLabel title="模型" tip="选择图像模型。Pro 更稳，v2 通常更快。" />
             <select value={form.model} onChange={(e) => setField(activeMode, "model", e.target.value)} className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"><option value="pro">Pro</option><option value="v2">v2</option></select>
@@ -574,7 +876,6 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
             <select value={form.imageSize} onChange={(e) => setField(activeMode, "imageSize", e.target.value)} className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"><option value="1K">1K</option><option value="2K">2K</option><option value="4K">4K</option></select>
             <HelpLabel title="宽高比" tip="输出宽高比，例如 3:4 竖图。" />
             <select value={form.aspectRatio} onChange={(e) => setField(activeMode, "aspectRatio", e.target.value)} className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs">{ASPECT_RATIO_OPTIONS.map((ratio) => <option key={ratio} value={ratio}>{ratio}</option>)}</select>
-            {activeMode !== "launch_pack" ? <HelpLabel title="任务数量" tip={activeMode === "try_on" ? "试穿未上传场景参考图时，按这里的数量生成；若上传多张场景参考图，会按场景图数量生成。" : activeMode === "lookbook" ? "Lookbook 会先由 LLM 生成多条不同动作提示词，再分别出图。" : "平铺/3D 会根据这里的数量按面出图。"} /> : null}
           </div>
         </section>
         <section className="xl:col-span-8 2xl:col-span-9 min-h-0 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#3A4A54]/10 relative workspace-scroll-lock">
@@ -609,6 +910,11 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
                           <div className="w-full h-full p-3 flex items-center justify-center text-center"><p className="font-mono text-[10px] uppercase text-amber-200">结果已完成，图片链接同步中</p></div>
                         ) : task.status === "failed" ? (
                           <div className="w-full h-full p-3 flex items-center justify-center text-center"><p className="font-mono text-[10px] uppercase text-red-200">{task.error ?? "生成失败"}</p></div>
+                        ) : task.placeholderSourceUrl ? (
+                          <>
+                            <img src={task.placeholderSourceUrl} alt={task.title || "generating"} className="w-full h-full scale-[1.02] object-cover blur-sm opacity-60" referrerPolicy="no-referrer" />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/25"><Loader2 className="w-5 h-5 animate-spin" /><p className="font-mono text-[10px] uppercase tracking-widest text-center px-3">生成中</p></div>
+                          </>
                         ) : (
                           <div className="w-full h-full flex flex-col items-center justify-center gap-2 opacity-70"><Loader2 className="w-5 h-5 animate-spin" /><p className="font-mono text-[10px] uppercase tracking-widest text-center px-3">{task.status === "queued" ? "排队中..." : "生成中..."}</p></div>
                         )}
@@ -624,7 +930,7 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
           </div>
         </section>
       </div>
-      {modal ? <ImageModal url={modal.kind === "single" ? modal.url : modalGalleryItems[modalSelectedIndex]?.url || ""} title={modal.kind === "single" ? modal.title : modalGalleryItems[modalSelectedIndex]?.title} prompt={modal.kind === "single" ? modal.prompt : modalGalleryItems[modalSelectedIndex]?.prompt} mode={modal.kind === "single" ? modal.mode : modal.mode} referenceImages={modal.kind === "single" ? modal.referenceImages : modalGalleryItems[modalSelectedIndex]?.referenceImages} items={modal.kind === "gallery" ? modalGalleryItems : undefined} selectedIndex={modal.kind === "gallery" ? modalSelectedIndex : undefined} onSelect={modal.kind === "gallery" ? (index) => { const item = modalGalleryItems[index]; if (item) { setRegenerateError(null); setModal({ kind: "gallery", mode: modal.mode, selectedCardId: item.id }); } } : undefined} isSubmitting={isRegenerating} error={regenerateError} onRegenerate={modal.kind === "gallery" ? handleRegenerate : undefined} onClose={() => { setModal(null); setRegenerateError(null); }} /> : null}
+      {modal && (modal.kind === "single" || modalSelectedItem) ? <ImageModal url={modal.kind === "single" ? modal.url : modalSelectedItem!.url} title={modal.kind === "single" ? modal.title : modalSelectedItem!.title} prompt={modal.kind === "single" ? modal.prompt : modalSelectedItem!.prompt} mode={modal.kind === "single" ? modal.mode : modal.mode} referenceImages={modal.kind === "single" ? modal.referenceImages : modalSelectedItem!.referenceImages} items={modal.kind === "gallery" ? modalGalleryItems : undefined} selectedIndex={modal.kind === "gallery" ? modalSelectedIndex : undefined} onSelect={modal.kind === "gallery" ? (index) => { const item = modalGalleryItems[index]; if (item) { setRegenerateError(null); setModal({ kind: "gallery", mode: modal.mode, selectedCardId: item.id }); } } : undefined} isSubmitting={isRegenerating} error={regenerateError} onRegenerate={modal.kind === "gallery" ? handleRegenerate : undefined} onClose={() => { setModal(null); setRegenerateError(null); }} /> : null}
     </div>
   );
 }
