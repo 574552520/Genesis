@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini 3.0 Image Pro API 测试工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 24px 32px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+            min-height: 800px;
+        }
+
+        .panel {
+            padding: 32px;
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .panel-left {
+            border-right: 1px solid #e5e7eb;
+        }
+
+        .section {
+            margin-bottom: 32px;
+        }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #667eea;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-control[type="number"] {
+            width: 120px;
+        }
+
+        .select-group {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-group input {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .range-input {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .range-input input[type="range"] {
+            flex: 1;
+        }
+
+        .range-input .value {
+            min-width: 50px;
+            text-align: right;
+            font-weight: 500;
+            color: #667eea;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        textarea.form-control {
+            resize: vertical;
+            min-height: 100px;
+            font-family: monospace;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 16px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .result-panel {
+            background: #f9fafb;
+        }
+
+        .result-section {
+            margin-bottom: 24px;
+        }
+
+        .result-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .code-block {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .image-result {
+            margin-top: 16px;
+            text-align: center;
+        }
+
+        .image-result img {
+            max-width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6b7280;
+        }
+
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid #e5e7eb;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 12px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error {
+            background: #fee2e2;
+            border: 1px solid #fecdd3;
+            color: #dc2626;
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+
+        .success {
+            background: #dcfce7;
+            border: 1px solid #bbf7d0;
+            color: #166534;
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+        }
+
+        .reference-images {
+            margin-top: 8px;
+        }
+
+        .reference-image-item {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .reference-image-item {
+            position: relative;
+        }
+
+        .reference-image-item input {
+            flex: 1;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        /* 优化Base64输入框显示 */
+        .reference-image-item input[value^="data:image/"] {
+            color: #667eea;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .reference-image-preview {
+            width: 60px;
+            height: 60px;
+            border-radius: 4px;
+            object-fit: cover;
+            cursor: pointer;
+            border: 2px solid #e5e7eb;
+            transition: border-color 0.2s;
+        }
+
+        .reference-image-preview:hover {
+            border-color: #667eea;
+        }
+
+        .drop-zone {
+            border: 2px dashed #d1d5db;
+            border-radius: 8px;
+            padding: 24px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 12px;
+            background: #f9fafb;
+        }
+
+        .drop-zone:hover,
+        .drop-zone.drag-over {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+
+        .drop-zone .icon {
+            font-size: 32px;
+            color: #9ca3af;
+            margin-bottom: 8px;
+        }
+
+        .drop-zone .text {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .drop-zone .hint {
+            color: #9ca3af;
+            font-size: 12px;
+            margin-top: 4px;
+        }
+
+        .reference-image-item .remove-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #ef4444;
+            color: white;
+            border: none;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        .btn-small {
+            padding: 6px 12px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .btn-danger {
+            background: #ef4444;
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 8px 20px rgba(239, 68, 68, 0.4);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            color: #6b7280;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+        }
+
+        .tab.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Gemini 3.0 Image Pro API 测试工具</h1>
+            <p>完整支持所有官方参数配置，快速测试 API 功能</p>
+        </div>
+
+        <div class="content">
+            <div class="panel panel-left">
+                <form id="apiForm">
+                    <div class="section">
+                        <h2 class="section-title">基础配置</h2>
+                        <div class="form-group">
+                            <label class="form-label">API 端点</label>
+                            <input type="text" class="form-control" id="apiEndpoint" value="https://lingkeapi.com" placeholder="https://lingkeapi.com">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">API 密钥</label>
+                            <input type="password" class="form-control" id="apiKey" placeholder="输入你的 API 密钥">
+                        </div>
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label class="form-label">模型</label>
+                                <select class="form-control" id="model" title="选择使用的模型">
+                                    <option value="gemini-3-pro-image-preview">gemini-3-pro-image-preview</option>
+                                    <option value="gemini-3.1-flash-image-preview">gemini-3.1-flash-image-preview</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">响应类型</label>
+                                <select class="form-control" id="responseModalities" title="选择响应类型">
+                                    <option value="TEXT,IMAGE">TEXT + IMAGE</option>
+                                    <option value="IMAGE">仅 IMAGE</option>
+                                    <option value="TEXT">仅 TEXT</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h2 class="section-title">提示词配置</h2>
+                        <div class="form-group">
+                            <label class="form-label">系统提示词（可选）</label>
+                            <textarea class="form-control" id="systemPrompt" placeholder="输入系统提示词，用于设置生成风格..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">用户提示词</label>
+                            <textarea class="form-control" id="prompt" placeholder="输入图片生成提示词...">A beautiful sunset over the ocean</textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">参考图片（可选）</label>
+                            
+                            <!-- 拖拽上传区域 -->
+                            <div class="drop-zone" id="dropZone">
+                                <div class="icon">📸</div>
+                                <div class="text">拖拽图片到此处，或点击选择文件</div>
+                                <div class="hint">支持 JPG、PNG、WebP 格式，单张不超过 10MB</div>
+                                <input type="file" id="fileInput" accept="image/*" multiple style="display: none;">
+                            </div>
+
+                            <div id="referenceImagesContainer">
+                                <div class="reference-image-item">
+                                    <input type="text" class="form-control" placeholder="输入图片 URL 或 Base64 数据" oninput="updatePreview(this)" title="参考图片URL或Base64">
+                                    <img class="reference-image-preview" style="display: none;" alt="参考图片预览" title="点击查看大图">
+                                    <button type="button" class="btn btn-small btn-danger" onclick="removeReferenceImage(this)" title="删除参考图片">删除</button>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-small" style="margin-top: 8px; background: #3b82f6;" onclick="addReferenceImage()">+ 添加参考图片</button>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h2 class="section-title">生成参数配置</h2>
+                        <div class="grid-3">
+                            <div class="form-group">
+                                <label class="form-label">Temperature</label>
+                                <div class="range-input">
+                                    <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7" title="Temperature参数，控制生成创造性">
+                                    <span class="value" id="temperatureValue">0.7</span>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Top P</label>
+                                <div class="range-input">
+                                    <input type="range" id="topP" min="0" max="1" step="0.05" value="0.95" title="Top P参数，核采样概率">
+                                    <span class="value" id="topPValue">0.95</span>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Top K</label>
+                                    <input type="number" class="form-control" id="topK" min="1" max="100" value="40" title="Top K参数，采样候选集大小">
+                            </div>
+                        </div>
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label class="form-label">最大输出令牌数</label>
+                                <input type="number" class="form-control" id="maxOutputTokens" min="1" max="8192" value="2048" title="最大输出令牌数">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">生成图片数量</label>
+                                <input type="number" class="form-control" id="numberOfImages" min="1" max="4" value="1" title="生成图片数量">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h2 class="section-title">图片配置</h2>
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label class="form-label">宽高比</label>
+                                <select class="form-control" id="aspectRatio" title="选择图片宽高比">
+                                    <option value="1:1">1:1</option>
+                                    <option value="16:9" selected>16:9</option>
+                                    <option value="9:16">9:16</option>
+                                    <option value="4:3">4:3</option>
+                                    <option value="3:4">3:4</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">图片尺寸</label>
+                                <select class="form-control" id="imageSize" title="选择图片分辨率">
+                                    <option value="512x512">512x512</option>
+                                    <option value="1K" selected>1K</option>
+                                    <option value="2K">2K</option>
+                                    <option value="4K">4K</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid-2">
+                            <div class="form-group">
+                                <label class="form-label">生成质量</label>
+                                <select class="form-control" id="quality" title="选择生成质量">
+                                    <option value="STANDARD">STANDARD</option>
+                                    <option value="HIGH" selected>HIGH</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">输出格式</label>
+                                <select class="form-control" id="outputMimeType" title="选择输出图片格式">
+                                    <option value="image/png" selected>PNG</option>
+                                    <option value="image/jpeg">JPEG</option>
+                                    <option value="image/webp">WebP</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid-3">
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="addWatermark" title="是否添加水印">
+                                <label class="form-label">添加水印</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="enhanceFaces" title="是否增强面部特征" checked>
+                                <label class="form-label">面部增强</label>
+                            </div>
+                            <div class="checkbox-group">
+                                <input type="checkbox" id="preserveIdentity" title="是否保留参考图片身份特征" checked>
+                                <label class="form-label">保留身份特征</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                                <label class="form-label">人像生成控制</label>
+                                <select class="form-control" id="personGeneration" title="人像生成控制">
+                                <option value="ALLOW_ALL" selected>允许所有人像</option>
+                                <option value="BLOCK_ADULT">阻止成人人像</option>
+                                <option value="BLOCK_ALL">阻止所有人像</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h2 class="section-title">安全设置</h2>
+                        <div class="select-group">
+                            <div>
+                                <label class="form-label">骚扰内容</label>
+                                <select class="form-control" id="harassmentThreshold" title="骚扰内容拦截阈值">
+                                    <option value="BLOCK_NONE" selected>不拦截</option>
+                                    <option value="BLOCK_ONLY_HIGH">仅拦截高风险</option>
+                                    <option value="BLOCK_MEDIUM_AND_ABOVE">拦截中高风险</option>
+                                    <option value="BLOCK_LOW_AND_ABOVE">拦截所有风险</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label">仇恨言论</label>
+                                <select class="form-control" id="hateSpeechThreshold" title="仇恨言论拦截阈值">
+                                    <option value="BLOCK_NONE" selected>不拦截</option>
+                                    <option value="BLOCK_ONLY_HIGH">仅拦截高风险</option>
+                                    <option value="BLOCK_MEDIUM_AND_ABOVE">拦截中高风险</option>
+                                    <option value="BLOCK_LOW_AND_ABOVE">拦截所有风险</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label">性暗示内容</label>
+                                <select class="form-control" id="sexualThreshold" title="性暗示内容拦截阈值">
+                                    <option value="BLOCK_NONE" selected>不拦截</option>
+                                    <option value="BLOCK_ONLY_HIGH">仅拦截高风险</option>
+                                    <option value="BLOCK_MEDIUM_AND_ABOVE">拦截中高风险</option>
+                                    <option value="BLOCK_LOW_AND_ABOVE">拦截所有风险</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label">危险内容</label>
+                                <select class="form-control" id="dangerousThreshold" title="危险内容拦截阈值">
+                                    <option value="BLOCK_NONE" selected>不拦截</option>
+                                    <option value="BLOCK_ONLY_HIGH">仅拦截高风险</option>
+                                    <option value="BLOCK_MEDIUM_AND_ABOVE">拦截中高风险</option>
+                                    <option value="BLOCK_LOW_AND_ABOVE">拦截所有风险</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn">🚀 发送生成请求</button>
+                </form>
+            </div>
+
+            <div class="panel panel-right result-panel">
+                <div class="tabs">
+                    <button class="tab active" data-tab="request">请求参数</button>
+                    <button class="tab" data-tab="response">响应结果</button>
+                    <button class="tab" data-tab="image">生成图片</button>
+                </div>
+
+                <div class="tab-content active" id="request-tab">
+                    <div class="result-section">
+                        <div class="result-title">
+                            <span>请求体 JSON</span>
+                            <button class="btn btn-small" style="background: #10b981; width: auto;" onclick="copyRequest()">复制</button>
+                        </div>
+                        <pre class="code-block" id="requestJson">{}</pre>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="response-tab">
+                    <div class="result-section">
+                        <div class="result-title">
+                            <span>响应数据</span>
+                            <button class="btn btn-small" style="background: #10b981; width: auto;" onclick="copyResponse()">复制</button>
+                        </div>
+                        <pre class="code-block" id="responseJson">{}</pre>
+                    </div>
+                </div>
+
+                <div class="tab-content" id="image-tab">
+                    <div class="result-section">
+                        <div class="result-title">生成结果</div>
+                        <div id="imageResult">
+                            <div style="text-align: center; color: #6b7280; padding: 40px;">
+                                发送请求后生成的图片将显示在这里
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="statusMessage"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 滑块值实时更新
+        document.getElementById('temperature').addEventListener('input', e => {
+            document.getElementById('temperatureValue').textContent = e.target.value;
+            updateRequestPreview();
+        });
+
+        document.getElementById('topP').addEventListener('input', e => {
+            document.getElementById('topPValue').textContent = e.target.value;
+            updateRequestPreview();
+        });
+
+        // 更新预览图（防抖优化）
+        const updatePreview = debounce(function(input) {
+            const previewImg = input.parentElement.querySelector('.reference-image-preview');
+            const value = input.value.trim();
+            
+            if (value && (value.startsWith('data:image/') || value.startsWith('http'))) {
+                previewImg.src = value;
+                previewImg.style.display = 'block';
+            } else {
+                previewImg.style.display = 'none';
+                previewImg.src = '';
+            }
+            
+            updateRequestPreview();
+        }, 300);
+
+        // 参考图片管理
+        function addReferenceImage() {
+            const container = document.getElementById('referenceImagesContainer');
+            const div = document.createElement('div');
+            div.className = 'reference-image-item';
+            div.innerHTML = `
+                <input type="text" class="form-control" placeholder="输入图片 URL 或 Base64 数据" oninput="updatePreview(this)" title="参考图片URL或Base64">
+                <img class="reference-image-preview" style="display: none;" alt="参考图片预览" title="点击查看大图">
+                <button type="button" class="btn btn-small btn-danger" onclick="removeReferenceImage(this)" title="删除参考图片">删除</button>
+            `;
+            container.appendChild(div);
+            updateRequestPreview();
+        }
+
+        // 压缩图片
+        function compressImage(file, maxSize = 1 * 1024 * 1024, maxWidth = 1024, maxHeight = 1024) {
+            return new Promise((resolve, reject) => {
+                // 如果文件已经小于最大尺寸，直接返回
+                if (file.size <= maxSize) {
+                    const reader = new FileReader();
+                    reader.onload = e => resolve(e.target.result);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                    return;
+                }
+
+                const img = new Image();
+                img.onload = () => {
+                    // 计算缩放比例
+                    let width = img.width;
+                    let height = img.height;
+                    let scale = Math.min(maxWidth / width, maxHeight / height, 1);
+                    
+                    if (scale < 1) {
+                        width = Math.floor(width * scale);
+                        height = Math.floor(height * scale);
+                    }
+
+                    // 创建canvas进行压缩
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // 逐步降低质量直到满足大小要求
+                    let quality = 0.9;
+                    let dataUrl = canvas.toDataURL(file.type, quality);
+                    
+                    while (dataUrl.length > maxSize * 1.37 && quality > 0.1) { // base64比原始大37%左右
+                        quality -= 0.1;
+                        dataUrl = canvas.toDataURL(file.type, quality);
+                    }
+
+                    resolve(dataUrl);
+                };
+                img.onerror = reject;
+                img.src = URL.createObjectURL(file);
+            });
+        }
+
+        // 防抖函数
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        }
+
+        // 处理文件上传
+        async function handleFiles(files) {
+            // 限制最大上传数量
+            const maxFiles = 4;
+            const validFiles = Array.from(files).filter(file => {
+                if (!file.type.startsWith('image/')) {
+                    showMessage(`文件 ${file.name} 不是图片格式`, 'error');
+                    return false;
+                }
+                if (file.size > 10 * 1024 * 1024) {
+                    showMessage(`文件 ${file.name} 超过 10MB 限制`, 'error');
+                    return false;
+                }
+                return true;
+            }).slice(0, maxFiles);
+
+            if (validFiles.length === 0) return;
+
+            // 查找可用输入框
+            const inputs = Array.from(document.querySelectorAll('#referenceImagesContainer input'));
+            const emptyInputs = inputs.filter(input => !input.value.trim());
+            
+            // 计算需要新增的输入框数量
+            const neededInputs = validFiles.length - emptyInputs.length;
+            for (let i = 0; i < neededInputs; i++) {
+                addReferenceImage();
+            }
+
+            // 获取最新的空输入框
+            const allInputs = Array.from(document.querySelectorAll('#referenceImagesContainer input'));
+            const availableInputs = allInputs.filter(input => !input.value.trim());
+
+            // 异步处理所有文件
+            for (let i = 0; i < validFiles.length; i++) {
+                try {
+                    const compressedData = await compressImage(validFiles[i]);
+                    availableInputs[i].value = compressedData;
+                    updatePreview(availableInputs[i]);
+                } catch (error) {
+                    showMessage(`处理文件 ${validFiles[i].name} 失败`, 'error');
+                    console.error('图片处理失败:', error);
+                }
+            }
+        }
+
+        // 初始化拖拽功能
+        function initDragAndDrop() {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+
+            // 点击拖拽区域打开文件选择
+            dropZone.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            // 文件选择
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+
+            // 拖拽事件
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('drag-over');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('drag-over');
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+                handleFiles(e.dataTransfer.files);
+            });
+        }
+
+        function removeReferenceImage(btn) {
+            btn.parentElement.remove();
+            updateRequestPreview();
+        }
+
+        // 标签页切换
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(`${tab.dataset.tab}-tab`).classList.add('active');
+            });
+        });
+
+        // 构建请求体
+        function buildRequestBody() {
+            const parts = [];
+            
+            // 添加参考图片
+            const referenceInputs = document.querySelectorAll('#referenceImagesContainer input');
+            referenceInputs.forEach(input => {
+                const value = input.value.trim();
+                if (value) {
+                    if (value.startsWith('data:')) {
+                        // Base64 数据
+                        const [header, data] = value.split(',');
+                        const mimeType = header.split(';')[0].replace('data:', '');
+                        parts.push({
+                            inline_data: {
+                                mime_type: mimeType,
+                                data: data
+                            }
+                        });
+                    } else if (value.startsWith('http')) {
+                        // URL 图片（这里简化处理，实际需要后端代理下载）
+                        parts.push({
+                            text: `Reference image: ${value}`
+                        });
+                    }
+                }
+            });
+
+            // 添加用户提示词
+            const prompt = document.getElementById('prompt').value.trim();
+            if (prompt) {
+                parts.push({ text: prompt });
+            }
+
+            const requestBody = {
+                contents: [
+                    {
+                        role: 'user',
+                        parts: parts
+                    }
+                ],
+                generationConfig: {
+                    responseModalities: document.getElementById('responseModalities').value.split(','),
+                    temperature: parseFloat(document.getElementById('temperature').value),
+                    topP: parseFloat(document.getElementById('topP').value),
+                    topK: parseInt(document.getElementById('topK').value),
+                    maxOutputTokens: parseInt(document.getElementById('maxOutputTokens').value),
+                    imageConfig: {
+                        aspectRatio: document.getElementById('aspectRatio').value,
+                        imageSize: document.getElementById('imageSize').value,
+                        quality: document.getElementById('quality').value,
+                        numberOfImages: parseInt(document.getElementById('numberOfImages').value),
+                        addWatermark: document.getElementById('addWatermark').checked,
+                        outputMimeType: document.getElementById('outputMimeType').value,
+                        personGeneration: document.getElementById('personGeneration').value,
+                        enhanceFaces: document.getElementById('enhanceFaces').checked,
+                        preserveIdentity: document.getElementById('preserveIdentity').checked
+                    }
+                },
+                safetySettings: [
+                    {
+                        category: 'HARM_CATEGORY_HARASSMENT',
+                        threshold: document.getElementById('harassmentThreshold').value
+                    },
+                    {
+                        category: 'HARM_CATEGORY_HATE_SPEECH',
+                        threshold: document.getElementById('hateSpeechThreshold').value
+                    },
+                    {
+                        category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+                        threshold: document.getElementById('sexualThreshold').value
+                    },
+                    {
+                        category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+                        threshold: document.getElementById('dangerousThreshold').value
+                    }
+                ]
+            };
+
+            // 添加系统提示词（如果有）
+            const systemPrompt = document.getElementById('systemPrompt').value.trim();
+            if (systemPrompt) {
+                requestBody.systemInstruction = {
+                    parts: [
+                        { text: systemPrompt }
+                    ]
+                };
+            }
+
+            return requestBody;
+        }
+
+        // 更新请求预览（防抖优化）
+        const updateRequestPreview = debounce(function() {
+            const requestBody = buildRequestBody();
+            document.getElementById('requestJson').textContent = JSON.stringify(requestBody, null, 2);
+        }, 200);
+
+        // 复制请求
+        function copyRequest() {
+            const json = document.getElementById('requestJson').textContent;
+            navigator.clipboard.writeText(json);
+            showMessage('请求参数已复制到剪贴板', 'success');
+        }
+
+        // 复制响应
+        function copyResponse() {
+            const json = document.getElementById('responseJson').textContent;
+            navigator.clipboard.writeText(json);
+            showMessage('响应数据已复制到剪贴板', 'success');
+        }
+
+        // 显示消息
+        function showMessage(message, type = 'info') {
+            const statusDiv = document.getElementById('statusMessage');
+            if (type === 'success') {
+                statusDiv.innerHTML = `<div class="success">✅ ${message}</div>`;
+            } else if (type === 'error') {
+                statusDiv.innerHTML = `<div class="error">❌ ${message}</div>`;
+            }
+            setTimeout(() => {
+                statusDiv.innerHTML = '';
+            }, 3000);
+        }
+
+        // 表单提交
+        document.getElementById('apiForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const apiEndpoint = document.getElementById('apiEndpoint').value.trim();
+            const model = document.getElementById('model').value;
+
+            if (!apiKey) {
+                showMessage('请输入 API 密钥', 'error');
+                return;
+            }
+
+            const submitBtn = e.submitter;
+            submitBtn.disabled = true;
+            submitBtn.textContent = '生成中...';
+
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.innerHTML = '<div class="loading">正在生成图片，请稍候...</div>';
+
+            try {
+                const requestBody = buildRequestBody();
+                const url = `${apiEndpoint.replace(/\/$/, '')}/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+                // 调试：打印请求URL和模型
+                console.log('请求URL:', url);
+                console.log('使用模型:', model);
+                console.log('完整请求体:', requestBody);
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const responseData = await response.json();
+                document.getElementById('responseJson').textContent = JSON.stringify(responseData, null, 2);
+
+                if (!response.ok) {
+                    throw new Error(`API 请求失败 (${response.status}): ${JSON.stringify(responseData)}`);
+                }
+
+                // 处理生成的图片
+                const imageResult = document.getElementById('imageResult');
+                imageResult.innerHTML = '';
+
+                const parts = responseData.candidates?.[0]?.content?.parts || [];
+                let hasImage = false;
+
+                for (const part of parts) {
+                    const base64 = part.inlineData?.data ?? part.inline_data?.data;
+                    const mimeType = part.inlineData?.mimeType ?? part.inline_data?.mime_type;
+                    
+                    if (base64 && mimeType) {
+                        const img = document.createElement('img');
+                        img.src = `data:${mimeType};base64,${base64}`;
+                        img.alt = '生成的图片';
+                        
+                        const downloadBtn = document.createElement('button');
+                        downloadBtn.className = 'btn';
+                        downloadBtn.style = 'margin-top: 16px; background: #10b981;';
+                        downloadBtn.textContent = '下载图片';
+                        downloadBtn.onclick = () => {
+                            const a = document.createElement('a');
+                            a.href = img.src;
+                            a.download = `gemini-generated-${Date.now()}.${mimeType.split('/')[1]}`;
+                            a.click();
+                        };
+
+                        const container = document.createElement('div');
+                        container.className = 'image-result';
+                        container.appendChild(img);
+                        container.appendChild(downloadBtn);
+                        imageResult.appendChild(container);
+                        
+                        hasImage = true;
+                    } else if (part.text) {
+                        const textDiv = document.createElement('div');
+                        textDiv.style = 'background: white; padding: 16px; border-radius: 8px; margin-top: 16px;';
+                        textDiv.innerHTML = `<strong>生成的文本：</strong><p style="margin-top: 8px; white-space: pre-wrap;">${part.text}</p>`;
+                        imageResult.appendChild(textDiv);
+                    }
+                }
+
+                if (!hasImage) {
+                    imageResult.innerHTML = '<div style="text-align: center; color: #6b7280; padding: 40px;">未生成图片，请检查响应数据</div>';
+                }
+
+                showMessage('请求成功！', 'success');
+                document.querySelector('[data-tab="response"]').click();
+
+            } catch (error) {
+                showMessage(`请求失败: ${error.message}`, 'error');
+                console.error('请求错误:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '🚀 发送生成请求';
+            }
+        });
+
+        // 初始化更新请求预览
+        document.querySelectorAll('input, select, textarea').forEach(el => {
+            el.addEventListener('input', updateRequestPreview);
+            el.addEventListener('change', updateRequestPreview);
+        });
+
+        // 初始加载时更新预览
+        updateRequestPreview();
+
+        // 初始化拖拽功能
+        initDragAndDrop();
+    </script>
+</body>
+</html>

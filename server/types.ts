@@ -132,6 +132,7 @@ export interface TryOnInput extends CommerceBaseSettings {
   modelEthnicity?: string;
   modelStyle?: string;
   keepBackground: boolean;
+  useSceneAsTextReference?: boolean;
 }
 
 export interface LookbookInput extends CommerceBaseSettings {
