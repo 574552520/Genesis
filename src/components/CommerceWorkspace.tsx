@@ -632,7 +632,17 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
       const requestedCount = LAUNCH_COUNT_OPTIONS.includes(input.requestedCount as typeof LAUNCH_COUNT_OPTIONS[number]) ? input.requestedCount : 4;
       return { ...input, productName: input.productName.trim(), descriptionPrompt: input.descriptionPrompt?.trim() || undefined, requestedCount, imageTaskCount: requestedCount };
     }
-    if (mode === "try_on") { const input = baseForm as TryOnInput; const count = input.sceneReferenceImages.length > 0 ? input.sceneReferenceImages.length : input.imageTaskCount; return { ...input, imageTaskCount: Math.max(1, Math.min(6, Number(count) || 1)), useModelReference: input.modelReferenceImages.length > 0 }; }
+    if (mode === "try_on") {
+      const input = baseForm as TryOnInput;
+      const count = input.sceneReferenceImages.length > 0 ? input.sceneReferenceImages.length : input.imageTaskCount;
+      return {
+        ...input,
+        descriptionPrompt: input.descriptionPrompt?.trim() || undefined,
+        imageTaskCount: Math.max(1, Math.min(6, Number(count) || 1)),
+        useModelReference: input.modelReferenceImages.length > 0,
+        useSceneAsTextReference: input.useSceneAsTextReference === true,
+      };
+    }
     if (mode === "lookbook") {
       const input = baseForm as LookbookInput;
       const lookbookMode: LookbookMode = input.lookbookMode === "count_input" ? "count_input" : "angle_preset";
@@ -830,7 +840,148 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
           <div className="sticky top-0 z-10 border-b border-white/10 bg-[#202d35]/95 px-4 py-4"><div className="flex items-start justify-between gap-4"><div><h3 className="font-display text-xl uppercase">{MODE_LABEL[activeMode]}</h3></div><button onClick={() => void submit()} disabled={isSubmitting} className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 font-mono text-xs uppercase text-[#647B8C] disabled:opacity-60">{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{isSubmitting ? "提交中..." : "开始生成"}</button></div></div>
           <div className="min-h-0 flex-1 overflow-y-auto workspace-scroll-area p-4 space-y-4">
             {activeMode === "launch_pack" ? <LaunchPackInputs launch={launch} dragOver={dragOver} setDragOver={setDragOver} openPicker={openPicker} handleDrop={handleDrop} removeArrayImage={removeArrayImage} setField={setField} setModal={setModal} /> : null}
-            {activeMode === "try_on" ? <><ImagePreviewGrid title="服装图" images={tryOn.productImages} onRemove={(i) => removeArrayImage(activeMode, "productImages", i)} onOpen={(url) => setModal({ kind: "single", url })} onAdd={() => openPicker(activeMode, "productImages")} showAddSlot addZoneId="try-product-add" dragOver={dragOver} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "productImages", false, z)} /><textarea aria-label="试穿补充描述" value={tryOn.descriptionPrompt || ""} onChange={(e) => setField(activeMode, "descriptionPrompt", e.target.value)} placeholder="描述服装细节、穿搭方向或背景要求（可选）" className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 min-h-[88px] text-sm" /><div className="grid grid-cols-2 gap-2"><select aria-label="试穿目标性别" value={tryOn.genderCategory} onChange={(e) => setField(activeMode, "genderCategory", e.target.value)} className="bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"><option value="menswear">男装</option><option value="womenswear">女装</option><option value="unisex">中性</option></select><select aria-label="试穿目标年龄" value={tryOn.ageGroup} onChange={(e) => setField(activeMode, "ageGroup", e.target.value)} className="bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"><option value="adult">成人</option><option value="teen">青少年</option><option value="older_kids">大童</option><option value="middle_kids">中童</option><option value="younger_kids">小童</option><option value="toddlers">幼童</option></select></div><div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70 leading-6">系统会用你上传的服装图替换参考人物当前穿着。上传场景参考图时优先复用场景、构图与姿态；上传模特参考图时优先复用人物身份；两类都不传时会随机生成适合该服装展示的环境。</div><SectionToggle title="场景参考图" count={tryOn.sceneReferenceImages.length} open={tryOnSceneOpen} onToggle={() => setTryOnSceneOpen((prev) => !prev)} />{tryOnSceneOpen ? <><ImagePreviewGrid title="场景参考图" images={tryOn.sceneReferenceImages} onRemove={(i) => removeArrayImage(activeMode, "sceneReferenceImages", i)} onOpen={(url) => setModal({ kind: "single", url })} onAdd={() => openPicker(activeMode, "sceneReferenceImages")} showAddSlot addZoneId="try-scene-add" dragOver={dragOver} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "sceneReferenceImages", false, z)} /></> : null}<SectionToggle title="模特参考图" count={tryOn.modelReferenceImages.length} open={tryOnModelOpen} onToggle={() => setTryOnModelOpen((prev) => !prev)} />{tryOnModelOpen ? <><ImagePreviewGrid title="模特参考图" images={tryOn.modelReferenceImages} onRemove={(i) => removeArrayImage(activeMode, "modelReferenceImages", i)} onOpen={(url) => setModal({ kind: "single", url })} onAdd={() => openPicker(activeMode, "modelReferenceImages")} showAddSlot addZoneId="try-model-add" dragOver={dragOver} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "modelReferenceImages", false, z)} /></> : null}</> : null}
+            {activeMode === "try_on" ? (
+              <>
+                <ImagePreviewGrid
+                  title="服装图"
+                  images={tryOn.productImages}
+                  onRemove={(i) => removeArrayImage(activeMode, "productImages", i)}
+                  onOpen={(url) => setModal({ kind: "single", url })}
+                  onAdd={() => openPicker(activeMode, "productImages")}
+                  showAddSlot
+                  addZoneId="try-product-add"
+                  dragOver={dragOver}
+                  onDragOver={(e, z) => {
+                    e.preventDefault();
+                    setDragOver(z);
+                  }}
+                  onDragLeave={(e, z) => {
+                    e.preventDefault();
+                    setDragOver((prev) => prev === z ? null : prev);
+                  }}
+                  onDrop={(e, z) => void handleDrop(e, activeMode, "productImages", false, z)}
+                />
+                <textarea
+                  aria-label="试穿补充描述"
+                  value={tryOn.descriptionPrompt || ""}
+                  onChange={(e) => setField(activeMode, "descriptionPrompt", e.target.value)}
+                  placeholder="描述服装细节、穿搭方向或背景要求（可选）"
+                  className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 min-h-[88px] text-sm"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    aria-label="试穿目标性别"
+                    value={tryOn.genderCategory}
+                    onChange={(e) => setField(activeMode, "genderCategory", e.target.value)}
+                    className="bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"
+                  >
+                    <option value="menswear">男装</option>
+                    <option value="womenswear">女装</option>
+                    <option value="unisex">中性</option>
+                  </select>
+                  <select
+                    aria-label="试穿目标年龄"
+                    value={tryOn.ageGroup}
+                    onChange={(e) => setField(activeMode, "ageGroup", e.target.value)}
+                    className="bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"
+                  >
+                    <option value="adult">成人</option>
+                    <option value="teen">青少年</option>
+                    <option value="older_kids">大童</option>
+                    <option value="middle_kids">中童</option>
+                    <option value="younger_kids">小童</option>
+                    <option value="toddlers">幼童</option>
+                  </select>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70 leading-6">
+                  系统会用你上传的服装图替换参考人物当前穿着。上传场景参考图时优先复用场景、构图与姿态；上传模特参考图时优先复用人物身份；两类都不传时会随机生成适合该服装展示的环境。
+                </div>
+                <SectionToggle
+                  title="场景参考图"
+                  count={tryOn.sceneReferenceImages.length}
+                  open={tryOnSceneOpen}
+                  onToggle={() => setTryOnSceneOpen((prev) => !prev)}
+                />
+                {tryOnSceneOpen ? (
+                  <>
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-mono text-[10px] uppercase tracking-widest text-white/65">场景图使用方式</p>
+                          <p className="mt-1 text-xs text-white/55 leading-5">
+                            开启后会先结合产品图反推替换后的场景提示词，再去生图；场景图本身不再直接传给生图模型。
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setField(activeMode, "useSceneAsTextReference", !tryOn.useSceneAsTextReference)}
+                          className={`shrink-0 rounded-lg border px-3 py-2 font-mono text-[11px] uppercase transition-colors ${
+                            tryOn.useSceneAsTextReference
+                              ? "bg-white text-[#647B8C]"
+                              : "border-white/20 text-white/75 hover:bg-white/10"
+                          }`}
+                        >
+                          仅作为文本参考
+                        </button>
+                      </div>
+                      <div className="rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-[11px] leading-5 text-white/55">
+                        {tryOn.sceneReferenceImages.length > 0
+                          ? tryOn.useSceneAsTextReference
+                            ? "当前已开启：会先让语言模型读取场景图和产品图，直接描述替换后的最终画面。"
+                            : "当前已关闭：场景参考图会继续直接作为生图参考图输入模型。"
+                          : "当前没有上传场景参考图；开启后也不会生效，直到你上传场景图。"}
+                      </div>
+                    </div>
+                    <ImagePreviewGrid
+                      title="场景参考图"
+                      images={tryOn.sceneReferenceImages}
+                      onRemove={(i) => removeArrayImage(activeMode, "sceneReferenceImages", i)}
+                      onOpen={(url) => setModal({ kind: "single", url })}
+                      onAdd={() => openPicker(activeMode, "sceneReferenceImages")}
+                      showAddSlot
+                      addZoneId="try-scene-add"
+                      dragOver={dragOver}
+                      onDragOver={(e, z) => {
+                        e.preventDefault();
+                        setDragOver(z);
+                      }}
+                      onDragLeave={(e, z) => {
+                        e.preventDefault();
+                        setDragOver((prev) => prev === z ? null : prev);
+                      }}
+                      onDrop={(e, z) => void handleDrop(e, activeMode, "sceneReferenceImages", false, z)}
+                    />
+                  </>
+                ) : null}
+                <SectionToggle
+                  title="模特参考图"
+                  count={tryOn.modelReferenceImages.length}
+                  open={tryOnModelOpen}
+                  onToggle={() => setTryOnModelOpen((prev) => !prev)}
+                />
+                {tryOnModelOpen ? (
+                  <ImagePreviewGrid
+                    title="模特参考图"
+                    images={tryOn.modelReferenceImages}
+                    onRemove={(i) => removeArrayImage(activeMode, "modelReferenceImages", i)}
+                    onOpen={(url) => setModal({ kind: "single", url })}
+                    onAdd={() => openPicker(activeMode, "modelReferenceImages")}
+                    showAddSlot
+                    addZoneId="try-model-add"
+                    dragOver={dragOver}
+                    onDragOver={(e, z) => {
+                      e.preventDefault();
+                      setDragOver(z);
+                    }}
+                    onDragLeave={(e, z) => {
+                      e.preventDefault();
+                      setDragOver((prev) => prev === z ? null : prev);
+                    }}
+                    onDrop={(e, z) => void handleDrop(e, activeMode, "modelReferenceImages", false, z)}
+                  />
+                ) : null}
+              </>
+            ) : null}
             {activeMode === "lookbook" ? (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

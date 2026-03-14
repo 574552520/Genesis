@@ -597,8 +597,12 @@ function inferReferenceImagesFromPackItem(params: {
     const productRefs = dedupeTrimmed(tryOn.productImages);
     const sceneRefs = dedupeTrimmed(tryOn.sceneReferenceImages);
     const modelRefs = dedupeTrimmed(tryOn.modelReferenceImages);
+    const extraRefs = dedupeTrimmed(tryOn.referenceImages ?? []);
     const sceneRef = sceneRefs.length > 0 ? sceneRefs[params.itemIndex % sceneRefs.length] : null;
-    return dedupeTrimmed(sceneRef ? [...productRefs, sceneRef, ...modelRefs] : [...productRefs, ...modelRefs]);
+    if (!sceneRef || tryOn.useSceneAsTextReference === true) {
+      return dedupeTrimmed([...productRefs, ...modelRefs, ...extraRefs]);
+    }
+    return dedupeTrimmed([...productRefs, sceneRef, ...modelRefs, ...extraRefs]);
   }
 
   return [];

@@ -133,6 +133,7 @@ function normalizeTryOnInput(body: any): TryOnInput {
     modelEthnicity: typeof body?.modelEthnicity === "string" ? body.modelEthnicity.trim() : undefined,
     modelStyle: typeof body?.modelStyle === "string" ? body.modelStyle.trim() : undefined,
     keepBackground: body?.keepBackground !== false,
+    useSceneAsTextReference: body?.useSceneAsTextReference === true,
   };
 }
 

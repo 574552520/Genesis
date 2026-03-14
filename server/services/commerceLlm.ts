@@ -716,11 +716,8 @@ async function generateLaunchPackDraftStrict(input: LaunchPackInput): Promise<Co
 }
 
 function fallbackTryOn(input: TryOnInput): CommerceDraft {
-  const productRefs = dedupeTrimmed(input.productImages);
   const sceneRefs = dedupeTrimmed(input.sceneReferenceImages);
-  const modelRefs = dedupeTrimmed(input.modelReferenceImages);
-  const extraRefs = dedupeTrimmed(input.referenceImages || []);
-  const hasModelReference = modelRefs.length > 0;
+  const hasModelReference = dedupeTrimmed(input.modelReferenceImages).length > 0;
   const count = sceneRefs.length > 0 ? sceneRefs.length : clamp(input.imageTaskCount, 1, 6);
 
   const imageTasks = Array.from({ length: count }).map((_, idx) => {
@@ -740,10 +737,6 @@ function fallbackTryOn(input: TryOnInput): CommerceDraft {
       `Variation index: ${idx + 1}.`,
     ].join("\n");
 
-    const taskRefs = sceneRef
-      ? dedupeTrimmed([...productRefs, sceneRef, ...modelRefs, ...extraRefs])
-      : dedupeTrimmed([...productRefs, ...modelRefs, ...extraRefs]);
-
     return makeTask({
       id: `tryon-${idx + 1}`,
       title: sceneTitle,
@@ -751,7 +744,7 @@ function fallbackTryOn(input: TryOnInput): CommerceDraft {
       aspectRatio: input.aspectRatio,
       imageSize: input.imageSize,
       model: input.model,
-      referenceImages: taskRefs,
+      referenceImages: buildTryOnReferenceImages(input, sceneRef),
     });
   });
 
@@ -763,6 +756,186 @@ function fallbackTryOn(input: TryOnInput): CommerceDraft {
       ? []
       : [{ code: "missing_product_images", message: "Try-on requires product images.", severity: "warning" }],
     imageTasks,
+  };
+}
+
+function buildTryOnReferenceImages(input: TryOnInput, sceneRef: string | null): string[] {
+  const productRefs = dedupeTrimmed(input.productImages);
+  const modelRefs = dedupeTrimmed(input.modelReferenceImages);
+  const extraRefs = dedupeTrimmed(input.referenceImages || []);
+  if (!sceneRef || input.useSceneAsTextReference !== true) {
+    return dedupeTrimmed([...productRefs, ...modelRefs, ...extraRefs]);
+  }
+  return dedupeTrimmed([...productRefs, sceneRef, ...modelRefs, ...extraRefs]);
+}
+
+async function imageToInlinePart(
+  image: string,
+  label: string,
+): Promise<{ inline_data: { data: string; mime_type: string } }> {
+  const [header, data] = image.split(",");
+  if (header && data && header.startsWith("data:")) {
+    const mimeType = header.split(";")[0].replace("data:", "");
+    if (!mimeType) {
+      throw new Error(`Invalid ${label} mime type`);
+    }
+    return {
+      inline_data: {
+        data,
+        mime_type: mimeType,
+      },
+    };
+  }
+
+  if (!/^https?:\/\//i.test(image)) {
+    throw new Error(`Unsupported ${label} format`);
+  }
+
+  const response = await fetch(image);
+  if (!response.ok) {
+    throw new Error(`Failed to load ${label} (${response.status})`);
+  }
+
+  const mimeType = (response.headers.get("content-type") ?? "").split(";")[0].trim();
+  if (!mimeType.startsWith("image/")) {
+    throw new Error(`Unsupported ${label} content type: ${mimeType || "unknown"}`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  return {
+    inline_data: {
+      data: buffer.toString("base64"),
+      mime_type: mimeType,
+    },
+  };
+}
+
+async function generateTryOnDraftStrict(input: TryOnInput): Promise<CommerceDraft> {
+  const sceneRefs = dedupeTrimmed(input.sceneReferenceImages);
+  if (sceneRefs.length < 1) {
+    throw new Error("Try-on text-reference mode requires at least one scene reference image");
+  }
+
+  const productRefs = dedupeTrimmed(input.productImages);
+  if (productRefs.length < 1) {
+    throw new Error("Try-on requires at least one product image");
+  }
+
+  const modelRefs = dedupeTrimmed(input.modelReferenceImages);
+  const lingkeApiBaseUrl = process.env.LINGKE_API_BASE_URL ?? "https://lingkeapi.com";
+  const lingkeApiKey = process.env.LINGKE_API_KEY ?? process.env.GEMINI_API_KEY;
+  const lingkeBearerToken = process.env.LINGKE_BEARER_TOKEN ?? lingkeApiKey;
+  if (!lingkeApiKey) {
+    throw new Error("Try-on prompt generation failed: missing LINGKE_API_KEY");
+  }
+
+  const taskResults = await Promise.all(
+    sceneRefs.map(async (sceneRef, idx) => {
+      const instruction = [
+        "You are an ecommerce fashion try-on prompt writer.",
+        "Return strict JSON only.",
+        "Describe the final generated image, not the source image itself.",
+        "The scene reference image is only for scene, pose, camera, lighting, background, and composition understanding.",
+        "The product images define the garment that must appear in the final result.",
+        "Replace the original garment seen in the scene reference with the garment from the product images before writing the prompt.",
+        "Do not mention the original garment from the scene reference if it conflicts with the product images.",
+        "Example rule: if the scene reference shows a red jacket and the product images show a black jacket, the final prompt must describe a black jacket.",
+        modelRefs.length > 0
+          ? "Use model reference images as the primary identity source for face, hairstyle, and body identity."
+          : "If the scene reference includes a person, keep that person's identity coherent in the final prompt.",
+        input.keepBackground
+          ? "Keep the background/environment aligned to the scene reference."
+          : "You may adapt the background slightly, but keep the same overall scene logic and composition.",
+        "Preserve garment identity accurately: color, silhouette, length, fabric, logo, trims, closure, and stitching.",
+        "Write one detailed, executable English image-generation prompt for a high-quality ecommerce try-on result.",
+        "The prompt should already reflect the product replacement and should not instruct the model to do the replacement later.",
+        "Output schema:",
+        JSON.stringify({
+          title: "string",
+          prompt: "string",
+          keywords: ["string"],
+          qualityWarnings: [{ code: "string", message: "string", severity: "info|warning" }],
+        }),
+        "Input parameters:",
+        JSON.stringify({
+          sceneIndex: idx + 1,
+          genderCategory: input.genderCategory,
+          ageGroup: input.ageGroup,
+          descriptionPrompt: input.descriptionPrompt || "",
+          modelEthnicity: input.modelEthnicity || "",
+          modelStyle: input.modelStyle || "",
+          hasModelReference: modelRefs.length > 0,
+        }),
+      ].join("\n");
+
+      const parts: Array<Record<string, unknown>> = [{ text: instruction }];
+      parts.push(await imageToInlinePart(sceneRef, `scene reference ${idx + 1}`));
+      for (const [productIndex, productRef] of productRefs.entries()) {
+        parts.push(await imageToInlinePart(productRef, `product image ${productIndex + 1}`));
+      }
+      for (const [modelIndex, modelRef] of modelRefs.entries()) {
+        parts.push(await imageToInlinePart(modelRef, `model reference ${modelIndex + 1}`));
+      }
+
+      const parsed = await callTextLlm({
+        apiBaseUrl: lingkeApiBaseUrl,
+        apiKey: lingkeApiKey,
+        bearerToken: lingkeBearerToken,
+        body: {
+          contents: [{ role: "user", parts }],
+          generationConfig: {
+            temperature: 0.3,
+            responseModalities: ["TEXT"],
+          },
+        },
+      });
+
+      if (!parsed) {
+        throw new Error(`Try-on prompt generation failed for scene ${idx + 1}, please retry`);
+      }
+
+      const prompt = toStringSafe(parsed.prompt);
+      if (!prompt) {
+        throw new Error(`Try-on prompt generation failed for scene ${idx + 1}, please retry`);
+      }
+
+      return {
+        keywords: normalizeArray<any>(parsed.keywords)
+          .map((keyword) => toStringSafe(keyword))
+          .filter(Boolean)
+          .slice(0, 12),
+        qualityWarnings: normalizeArray<any>(parsed.qualityWarnings).map(
+          (warning, warningIndex): QualityWarning => ({
+            code: toStringSafe(warning?.code, `warning-${idx + 1}-${warningIndex + 1}`),
+            message: toStringSafe(warning?.message, `Check try-on scene ${idx + 1}`),
+            severity: warning?.severity === "info" ? "info" : "warning",
+          }),
+        ),
+        imageTask: makeTask({
+          id: `tryon-${idx + 1}`,
+          title: toStringSafe(parsed.title, `Try On - Text Scene ${idx + 1}`),
+          prompt,
+          aspectRatio: input.aspectRatio,
+          imageSize: input.imageSize,
+          model: input.model,
+          referenceImages: buildTryOnReferenceImages(input, sceneRef),
+        }),
+      };
+    }),
+  );
+
+  return {
+    copyBlocks: [],
+    titleCandidates: [],
+    keywords: dedupeTrimmed([
+      input.genderCategory,
+      input.ageGroup,
+      input.modelStyle || "",
+      input.modelEthnicity || "",
+      ...taskResults.flatMap((result) => result.keywords),
+    ], 24),
+    qualityWarnings: taskResults.flatMap((result) => result.qualityWarnings),
+    imageTasks: taskResults.map((result) => result.imageTask),
   };
 }
 
@@ -1086,8 +1259,13 @@ export async function generateCommerceDraft(request: CommerceGenerateRequest): P
     return generateLookbookDraftStrict(lookbookInput);
   }
   if (request.mode === "try_on") {
+    const tryOnInput = request.input as TryOnInput;
+    if (tryOnInput.useSceneAsTextReference === true && dedupeTrimmed(tryOnInput.sceneReferenceImages).length > 0) {
+      logLlm("draft.mode", { mode: request.mode, source: "llm_try_on_text_reference" });
+      return generateTryOnDraftStrict(tryOnInput);
+    }
     logLlm("draft.mode", { mode: request.mode, source: "fallback_only" });
-    return fallbackTryOn(request.input as TryOnInput);
+    return fallbackTryOn(tryOnInput);
   }
   if (request.mode === "flatlay") {
     logLlm("draft.mode", { mode: request.mode, source: "fixed_templates" });
