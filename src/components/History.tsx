@@ -31,6 +31,7 @@ type DisplayHistoryItem = GenerationRecord & {
   jobId?: string | null;
   anchorId?: string | null;
   placeholderSourceUrl?: string | null;
+  displayImageUrl?: string | null;
   localOnly?: boolean;
   removing?: boolean;
 };
@@ -68,16 +69,20 @@ export default function History({
   const mountedRef = useRef(true);
   const modalTriggerRef = useRef<HTMLElement | null>(null);
 
-  const { data, isLoading, isError, error } = useHistoryList(60, 0);
+  const { data, isLoading, isError, error } = useHistoryList(24, 0);
   const deleteMutation = useDeleteGenerationMutation();
 
   const baseItems = data?.items ?? [];
   const history = useMemo<DisplayHistoryItem[]>(
     () =>
-      baseItems.map((item) => ({
-        ...item,
-        imageUrl: imageUrlOverrides[item.id] ?? item.imageUrl,
-      })),
+      baseItems.map((item) => {
+        const originalUrl = imageUrlOverrides[item.id] ?? item.imageUrl;
+        return {
+          ...item,
+          imageUrl: originalUrl,
+          displayImageUrl: item.previewImageUrl ?? originalUrl,
+        };
+      }),
     [baseItems, imageUrlOverrides],
   );
   const removingIds = useMemo(() => new Set(removingItems.map((item) => item.id)), [removingItems]);
@@ -100,6 +105,7 @@ export default function History({
           status: persisted.status,
           error: persisted.error,
           imageUrl: imageUrlOverrides[persisted.id] ?? persisted.imageUrl,
+          displayImageUrl: persisted.previewImageUrl ?? imageUrlOverrides[persisted.id] ?? persisted.imageUrl,
           createdAt: persisted.createdAt,
           completedAt: persisted.completedAt,
           resolvedId: persisted.id,
@@ -125,6 +131,7 @@ export default function History({
                     ...pending,
                     status: job.status,
                     imageUrl: job.imageUrl ?? pending.imageUrl,
+                    displayImageUrl: job.previewImageUrl ?? job.imageUrl ?? pending.displayImageUrl ?? pending.imageUrl,
                     error: job.error,
                   }
                 : pending,
@@ -198,13 +205,15 @@ export default function History({
           id: item.id,
           stableId: item.stableId ?? item.id,
           resolvedId: item.resolvedId ?? item.jobId ?? item.id,
-          url,
+          url: item.displayImageUrl ?? url,
+          previewUrl: item.displayImageUrl ?? url,
+          fullUrl: item.imageUrl ?? url,
           prompt: item.prompt,
           model: item.model,
           imageSize: item.imageSize,
           aspectRatio: item.aspectRatio,
           mode: "generator" as const,
-          referenceImages: [url],
+          referenceImages: [item.imageUrl ?? url],
           status: item.status,
           error: item.error,
         };
@@ -588,7 +597,7 @@ export default function History({
               <div className="aspect-[3/4] relative overflow-hidden bg-[#0a0f14]">
                 {item.imageUrl ? (
                   <img
-                    src={item.imageUrl}
+                    src={item.displayImageUrl ?? item.imageUrl}
                     alt={item.prompt}
                     className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02] cursor-zoom-in"
                     referrerPolicy="no-referrer"

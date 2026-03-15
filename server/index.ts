@@ -1,6 +1,7 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { randomUUID } from "node:crypto";
 import { requireAuth } from "./middleware/auth.js";
 import commerceRouter from "./routes/commerce.js";
@@ -16,6 +17,22 @@ const port = Number(process.env.PORT ?? 8877);
 const corsOrigin = process.env.APP_ORIGIN?.split(",").map((s) => s.trim()).filter(Boolean);
 const bodyLimit = process.env.API_BODY_LIMIT?.trim() || "80mb";
 const apiDebugLog = process.env.API_DEBUG_LOG !== "0";
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "登录相关请求过于频繁，请稍后再试。" },
+});
+
+const generationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "生成请求过于频繁，请稍后再试。" },
+});
 
 function summarizeRequestBody(body: unknown): string {
   if (!body || typeof body !== "object") return "no-body";
@@ -73,11 +90,11 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.use("/api/security", securityRouter);
+app.use("/api/security", authLimiter, securityRouter);
 app.use("/api/me", requireAuth, meRouter);
 app.use("/api/credits", requireAuth, creditsRouter);
-app.use("/api/generations", requireAuth, generationsRouter);
-app.use("/api/commerce", requireAuth, commerceRouter);
+app.use("/api/generations", requireAuth, generationLimiter, generationsRouter);
+app.use("/api/commerce", requireAuth, generationLimiter, commerceRouter);
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (

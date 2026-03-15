@@ -99,7 +99,9 @@ export default function ImageModal({
   const hasGallery = galleryItems.length > 0;
   const safeIndex = hasGallery ? Math.max(0, Math.min(selectedIndex, galleryItems.length - 1)) : 0;
   const currentItem = hasGallery ? galleryItems[safeIndex] : null;
-  const currentUrl = currentItem?.url ?? url;
+  const currentPreviewUrl = currentItem?.previewUrl ?? currentItem?.url ?? url;
+  const currentFullUrl = currentItem?.fullUrl ?? currentItem?.url ?? url;
+  const currentUrl = currentFullUrl;
   const currentTitle = currentItem?.title ?? title;
   const currentPrompt = currentItem?.prompt ?? prompt;
   const currentMode = currentItem?.mode ?? mode;
@@ -333,7 +335,7 @@ export default function ImageModal({
 
               <div className="relative flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-2xl">
                 <img
-                  src={currentUrl}
+                  src={currentFullUrl}
                   alt={resolvedTitle}
                   className={`max-h-full max-w-full rounded-2xl object-contain shadow-2xl ${isPendingCurrent ? "blur-sm opacity-60" : ""}`}
                   referrerPolicy="no-referrer"
@@ -367,7 +369,7 @@ export default function ImageModal({
                         className={`relative h-20 w-16 shrink-0 overflow-hidden rounded-xl border transition-colors ${active ? "border-white/70" : "border-white/10 hover:border-white/30"}`}
                       >
                         <img
-                          src={item.url}
+                          src={item.previewUrl ?? item.url}
                           alt={item.title || `preview-${index + 1}`}
                           className={`h-full w-full object-cover ${item.status && item.status !== "succeeded" ? "blur-[1px] opacity-70" : ""}`}
                           referrerPolicy="no-referrer"
@@ -528,7 +530,7 @@ export default function ImageModal({
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => {
-                    const safeReferenceImages = uniqueImages([currentUrl, ...draftImages]);
+                    const safeReferenceImages = uniqueImages([currentFullUrl, ...draftImages]);
                     void onRegenerate?.({
                       prompt: draftPrompt,
                       referenceImages: safeReferenceImages,

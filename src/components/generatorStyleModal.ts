@@ -3,6 +3,8 @@ import type { GenerationLane, ImageModel } from "../types";
 export type GeneratorStyleModalItem = {
   id: string;
   url: string;
+  previewUrl?: string;
+  fullUrl?: string;
   prompt?: string;
   model: ImageModel;
   imageSize: string;

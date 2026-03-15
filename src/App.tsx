@@ -1,11 +1,12 @@
-﻿import React, { useCallback, useEffect, useState } from "react";
+﻿import React, { Suspense, lazy, useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import Landing from "./components/Landing";
-import Auth from "./components/Auth";
-import Dashboard from "./components/Dashboard";
 import { api } from "./lib/api";
 import { supabase } from "./lib/supabase";
 import type { UserProfile, ViewState } from "./types";
+
+const Auth = lazy(() => import("./components/Auth"));
+const Dashboard = lazy(() => import("./components/Dashboard"));
 
 export default function App() {
   const [view, setView] = useState<ViewState>("landing");
@@ -157,14 +158,20 @@ export default function App() {
           {bootstrapError}
         </div>
       )}
-      {view === "auth" && <Auth onBack={() => setView("landing")} />}
+      {view === "auth" && (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-mono text-xs uppercase opacity-70">正在加载登录模块...</div>}>
+          <Auth onBack={() => setView("landing")} />
+        </Suspense>
+      )}
       {view === "dashboard" && session && (
-        <Dashboard
-          profile={profile}
-          userEmail={session.user.email ?? ""}
-          onRefreshProfile={refreshProfile}
-          onLogout={handleLogout}
-        />
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-mono text-xs uppercase opacity-70">正在加载控制台...</div>}>
+          <Dashboard
+            profile={profile}
+            userEmail={session.user.email ?? ""}
+            onRefreshProfile={refreshProfile}
+            onLogout={handleLogout}
+          />
+        </Suspense>
       )}
     </div>
   );

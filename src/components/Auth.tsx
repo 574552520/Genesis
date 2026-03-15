@@ -21,7 +21,7 @@ declare global {
 const turnstileSiteKey = (import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined)?.trim() ?? "";
 
 export default function Auth({ onBack }: { onBack: () => void }) {
-  const [isLogin, setIsLogin] = useState(true);
+  const isLogin = true;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -110,27 +110,11 @@ export default function Auth({ onBack }: { onBack: () => void }) {
         await api.verifyTurnstile(captchaToken);
       }
 
-      if (isLogin) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
-        if (signInError) throw signInError;
-      } else {
-        const { error: signUpError, data } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            emailRedirectTo: window.location.origin,
-          },
-        });
-        if (signUpError) throw signUpError;
-        if (!data.session) {
-          setMessage("注册成功，请先前往邮箱完成验证。");
-        } else {
-          setMessage("注册成功。");
-        }
-      }
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (signInError) throw signInError;
 
       if (turnstileSiteKey) {
         resetCaptcha();
@@ -160,10 +144,10 @@ export default function Auth({ onBack }: { onBack: () => void }) {
         </div>
 
         <h2 className="font-display text-4xl uppercase text-center mb-2">
-          {isLogin ? "登录" : "注册"}
+          登录
         </h2>
         <p className="font-mono text-xs text-center opacity-50 uppercase mb-8">
-          [ SYSTEM: {isLogin ? "身份验证" : "注册流程"} ]
+          [ SYSTEM: 身份验证 ]
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -204,7 +188,7 @@ export default function Auth({ onBack }: { onBack: () => void }) {
             disabled={loading}
             className="w-full bg-white text-[#647B8C] font-mono text-sm uppercase py-3 rounded-full hover:bg-opacity-90 transition-colors mt-4 disabled:opacity-60"
           >
-            {loading ? "处理中..." : isLogin ? "进入系统" : "创建账号"}
+            {loading ? "处理中..." : "进入系统"}
           </button>
         </form>
 
@@ -220,20 +204,8 @@ export default function Auth({ onBack }: { onBack: () => void }) {
           </div>
         )}
 
-        <div className="mt-8 text-center">
-          <button
-            onClick={() => {
-              setIsLogin((v) => !v);
-              setError(null);
-              setMessage(null);
-              if (turnstileSiteKey) {
-                resetCaptcha();
-              }
-            }}
-            className="font-mono text-xs uppercase opacity-50 hover:opacity-100 transition-opacity"
-          >
-            {isLogin ? "还没有账号？去注册" : "已有账号？去登录"}
-          </button>
+        <div className="mt-8 text-center font-mono text-xs opacity-50">
+          当前站点暂未开放公开注册，如需开通账号请联系管理员。
         </div>
       </div>
     </div>

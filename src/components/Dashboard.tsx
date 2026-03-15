@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { Suspense, lazy, useState } from "react";
 import {
   BriefcaseBusiness,
   Hexagon,
@@ -6,11 +6,12 @@ import {
   Image as ImageIcon,
   LogOut,
 } from "lucide-react";
-import Generator from "./Generator";
-import History from "./History";
-import CommerceWorkspace from "./CommerceWorkspace";
 import type { UserProfile } from "../types";
 import { usePreviewSizePreference } from "../hooks/usePreviewSizePreference";
+
+const Generator = lazy(() => import("./Generator"));
+const History = lazy(() => import("./History"));
+const CommerceWorkspace = lazy(() => import("./CommerceWorkspace"));
 
 type Tab = "generate" | "history" | "commerce";
 
@@ -98,30 +99,36 @@ export default function Dashboard({
 
       <main className="flex-1 min-h-0 overflow-hidden relative flex flex-col workspace-scroll-lock">
         <div className={activeTab === "generate" ? "block h-full min-h-0 overflow-hidden" : "hidden"}>
-          <Generator
-            isVisible={activeTab === "generate"}
-            credits={profile?.credits ?? null}
-            onGenerationDone={onRefreshProfile}
-            previewSize={previewSize}
-            onPreviewSizeChange={setPreviewSize}
-          />
+          <Suspense fallback={<div className="h-full flex items-center justify-center font-mono text-xs uppercase opacity-70">正在加载生成模块...</div>}>
+            <Generator
+              isVisible={activeTab === "generate"}
+              credits={profile?.credits ?? null}
+              onGenerationDone={onRefreshProfile}
+              previewSize={previewSize}
+              onPreviewSizeChange={setPreviewSize}
+            />
+          </Suspense>
         </div>
 
         {activeTab === "history" && (
           <div className="h-full min-h-0 overflow-hidden">
-            <History
-            previewSize={previewSize}
-            onPreviewSizeChange={setPreviewSize}
-          />
+            <Suspense fallback={<div className="h-full flex items-center justify-center font-mono text-xs uppercase opacity-70">正在加载历史模块...</div>}>
+              <History
+                previewSize={previewSize}
+                onPreviewSizeChange={setPreviewSize}
+              />
+            </Suspense>
           </div>
         )}
 
         <div className={activeTab === "commerce" ? "block h-full min-h-0 overflow-hidden" : "hidden"}>
-          <CommerceWorkspace
-            onRefreshProfile={onRefreshProfile}
-            previewSize={previewSize}
-            onPreviewSizeChange={setPreviewSize}
-          />
+          <Suspense fallback={<div className="h-full flex items-center justify-center font-mono text-xs uppercase opacity-70">正在加载商业工作台...</div>}>
+            <CommerceWorkspace
+              onRefreshProfile={onRefreshProfile}
+              previewSize={previewSize}
+              onPreviewSizeChange={setPreviewSize}
+            />
+          </Suspense>
         </div>
       </main>
     </div>

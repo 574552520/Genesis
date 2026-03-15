@@ -287,16 +287,39 @@ export async function rechargeCredits(params: {
   };
 }
 
-export async function createSignedImageUrl(path: string): Promise<string> {
+export async function createSignedImageUrl(
+  path: string,
+  options?: { variant?: "original" | "preview" },
+): Promise<string> {
+  const variant = options?.variant ?? "original";
+  const transform =
+    variant === "preview"
+      ? {
+          width: 320,
+          quality: 45,
+          resize: "contain" as const,
+        }
+      : undefined;
+
   const { data, error } = await adminClient.storage
     .from(storageBucket)
-    .createSignedUrl(path, 60 * 60);
+    .createSignedUrl(path, 60 * 60, transform ? { transform } : undefined);
 
   if (error || !data?.signedUrl) {
     throw new Error(error?.message ?? "Failed to create signed URL");
   }
 
-  return data.signedUrl;
+  const publicSupabaseUrl = process.env.PUBLIC_SUPABASE_URL?.trim();
+  if (!publicSupabaseUrl) {
+    return data.signedUrl;
+  }
+
+  try {
+    const publicBase = new URL(publicSupabaseUrl);
+    return data.signedUrl.replace(/^https?:\/\/[^/]+/i, publicBase.origin);
+  } catch {
+    return data.signedUrl;
+  }
 }
 
 export async function createCommercePack(params: {
