@@ -4,6 +4,11 @@ import { api } from "../lib/api";
 import { downloadImageFile } from "../lib/download";
 import { requestGeneratorSubmit } from "../lib/generatorSubmission";
 import ImageModal from "./ImageModal";
+import {
+  buildGeneratorStyleModalItems,
+  getGeneratorStyleSelectedIndex,
+  getGeneratorStyleSelectedItem,
+} from "./generatorStyleModal";
 import type { GenerationRecord } from "../types";
 import {
   PREVIEW_GRID_GAP_CLASS,
@@ -27,10 +32,12 @@ type DisplayHistoryItem = GenerationRecord & {
   anchorId?: string | null;
   placeholderSourceUrl?: string | null;
   localOnly?: boolean;
+  removing?: boolean;
 };
 
 const IMAGE_RETRY_DELAYS_MS = [600, 1200, 2000];
 const IMAGE_RETRY_MAX = IMAGE_RETRY_DELAYS_MS.length;
+const DELETE_ANIMATION_MS = 220;
 
 function modelLabel(model: GenerationRecord["model"]): string {
   return model === "v2" ? "v2" : "Pro";
@@ -52,11 +59,14 @@ export default function History({
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
   const [pendingItems, setPendingItems] = useState<DisplayHistoryItem[]>([]);
+  const [removingItems, setRemovingItems] = useState<DisplayHistoryItem[]>([]);
 
   const retryTimersRef = useRef<Map<string, number>>(new Map());
   const downloadResetTimersRef = useRef<Map<string, number>>(new Map());
+  const removeTimersRef = useRef<Map<string, number>>(new Map());
   const imageReloadInFlightRef = useRef<Set<string>>(new Set());
   const mountedRef = useRef(true);
+  const modalTriggerRef = useRef<HTMLElement | null>(null);
 
   const { data, isLoading, isError, error } = useHistoryList(60, 0);
   const deleteMutation = useDeleteGenerationMutation();
@@ -70,6 +80,7 @@ export default function History({
       })),
     [baseItems, imageUrlOverrides],
   );
+  const removingIds = useMemo(() => new Set(removingItems.map((item) => item.id)), [removingItems]);
 
   useEffect(() => {
     if (!baseItems.length) return;
@@ -130,7 +141,7 @@ export default function History({
 
   const displayHistory = useMemo<DisplayHistoryItem[]>(() => {
     const hiddenRealIds = new Set(pendingItems.map((item) => item.jobId).filter(Boolean));
-    const merged = history.filter((item) => !hiddenRealIds.has(item.id));
+    const merged = history.filter((item) => !hiddenRealIds.has(item.id) && !removingIds.has(item.id));
     for (const pending of pendingItems) {
       if (pending.jobId && merged.some((item) => item.id === pending.jobId)) continue;
       const anchorIndex = merged.findIndex((item) => item.id === pending.anchorId);
@@ -144,8 +155,18 @@ export default function History({
       }
       merged.splice(insertIndex + 1, 0, pending);
     }
+    for (const removing of removingItems) {
+      if (merged.some((item) => item.id === removing.id)) continue;
+      const removingAt = new Date(removing.createdAt).getTime();
+      const insertIndex = merged.findIndex((item) => new Date(item.createdAt).getTime() <= removingAt);
+      if (insertIndex < 0) {
+        merged.push(removing);
+      } else {
+        merged.splice(insertIndex, 0, removing);
+      }
+    }
     return merged;
-  }, [history, pendingItems]);
+  }, [history, pendingItems, removingIds, removingItems]);
 
   useEffect(() => {
     const validIds = new Set(baseItems.map((item) => item.id));
@@ -170,32 +191,33 @@ export default function History({
 
   const modalGalleryItems = useMemo(
     () =>
-      displayHistory
-        .filter((item) => Boolean(item.imageUrl || item.placeholderSourceUrl))
-        .map((item) => ({
+      buildGeneratorStyleModalItems<DisplayHistoryItem>(displayHistory, (item) => {
+        const url = item.imageUrl ?? item.placeholderSourceUrl;
+        if (!url) return null;
+        return {
           id: item.id,
           stableId: item.stableId ?? item.id,
           resolvedId: item.resolvedId ?? item.jobId ?? item.id,
-          url: (item.imageUrl ?? item.placeholderSourceUrl) as string,
+          url,
           prompt: item.prompt,
           model: item.model,
           imageSize: item.imageSize,
           aspectRatio: item.aspectRatio,
-          mode: item.lane,
-          referenceImages: [],
+          mode: "generator" as const,
+          referenceImages: [url],
           status: item.status,
           error: item.error,
-        })),
+        };
+      }),
     [displayHistory],
   );
 
-  const modalSelectedIndex = useMemo(() => {
-    if (!enlargedId) return 0;
-    const index = modalGalleryItems.findIndex((item) => item.id === enlargedId);
-    return index >= 0 ? index : 0;
-  }, [enlargedId, modalGalleryItems]);
+  const modalSelectedIndex = useMemo(
+    () => getGeneratorStyleSelectedIndex(modalGalleryItems, enlargedId),
+    [enlargedId, modalGalleryItems],
+  );
   const modalSelectedItem = useMemo(
-    () => modalGalleryItems.find((item) => item.id === enlargedId) ?? null,
+    () => getGeneratorStyleSelectedItem(modalGalleryItems, enlargedId),
     [enlargedId, modalGalleryItems],
   );
 
@@ -223,6 +245,29 @@ export default function History({
       return next;
     });
   }, []);
+
+  const clearRemoveTimer = useCallback((id: string) => {
+    const timer = removeTimersRef.current.get(id);
+    if (timer) {
+      window.clearTimeout(timer);
+      removeTimersRef.current.delete(id);
+    }
+  }, []);
+
+  const dropRemovingItem = useCallback((id: string) => {
+    clearRemoveTimer(id);
+    setRemovingItems((prev) => prev.filter((item) => item.id !== id));
+  }, [clearRemoveTimer]);
+
+  const scheduleRemovingCleanup = useCallback((id: string) => {
+    clearRemoveTimer(id);
+    const timer = window.setTimeout(() => {
+      if (!mountedRef.current) return;
+      dropRemovingItem(id);
+      setDeletingId((prev) => (prev === id ? null : prev));
+    }, DELETE_ANIMATION_MS);
+    removeTimersRef.current.set(id, timer);
+  }, [clearRemoveTimer, dropRemovingItem]);
 
   const refreshHistoryItemUrl = useCallback(async (jobId: string) => {
     if (imageReloadInFlightRef.current.has(jobId)) return;
@@ -291,6 +336,8 @@ export default function History({
       retryTimersRef.current.clear();
       downloadResetTimersRef.current.forEach((timer) => window.clearTimeout(timer));
       downloadResetTimersRef.current.clear();
+      removeTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+      removeTimersRef.current.clear();
       imageReloadInFlightRef.current.clear();
     };
   }, []);
@@ -381,9 +428,20 @@ export default function History({
 
   const deleteItem = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
+    if (removingIds.has(id)) return;
     setDeletingId(id);
     setLocalError(null);
     clearRetryTimer(id);
+    clearRemoveTimer(id);
+
+    const target = displayHistory.find((item) => item.id === id);
+    if (target) {
+      setRemovingItems((prev) =>
+        prev.some((item) => item.id === id)
+          ? prev
+          : [...prev, { ...target, removing: true }],
+      );
+    }
 
     try {
       await deleteMutation.mutateAsync(id);
@@ -400,9 +458,10 @@ export default function History({
         return next;
       });
       if (enlargedId === id) setEnlargedId(null);
+      scheduleRemovingCleanup(id);
     } catch (err) {
+      dropRemovingItem(id);
       setLocalError(err instanceof Error ? err.message : "删除记录失败");
-    } finally {
       setDeletingId(null);
     }
   };
@@ -522,7 +581,9 @@ export default function History({
           {displayHistory.map((item) => (
             <div
               key={item.id}
-              className="group render-isolate bg-[#3A4A54]/20 border border-white/10 rounded-xl overflow-hidden hover:border-white/30 transition-colors flex flex-col"
+              className={`group render-isolate bg-[#3A4A54]/20 border border-white/10 rounded-xl overflow-hidden hover:border-white/30 transition-all duration-200 ease-out flex flex-col ${
+                item.removing ? "pointer-events-none scale-[0.97] opacity-0" : "scale-100 opacity-100"
+              }`}
             >
               <div className="aspect-[3/4] relative overflow-hidden bg-[#0a0f14]">
                 {item.imageUrl ? (
@@ -534,8 +595,18 @@ export default function History({
                     loading="lazy"
                     decoding="async"
                     draggable
+                    tabIndex={0}
                     onDragStart={(e) => handleImageDragStart(e, item.imageUrl!)}
-                    onClick={() => setEnlargedId(item.id)}
+                    onClick={(e) => {
+                      modalTriggerRef.current = e.currentTarget;
+                      setEnlargedId(item.id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      modalTriggerRef.current = e.currentTarget;
+                      setEnlargedId(item.id);
+                    }}
                     onLoad={() => handleImageLoad(item.id)}
                     onError={() => handleImageError(item)}
                   />
@@ -575,7 +646,7 @@ export default function History({
                   </div>
                 )}
 
-                <div className="absolute top-2 right-2 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                <div className="absolute top-2 right-2 flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity pointer-events-none">
                   {imageLoadState[item.id]?.error && (
                     <button
                       onClick={(e) => handleManualRetry(e, item)}
@@ -601,11 +672,11 @@ export default function History({
                   {!item.localOnly ? (
                     <button
                       onClick={(e) => void deleteItem(e, item.id)}
-                      disabled={deletingId === item.id || deleteMutation.isPending}
+                      disabled={deletingId === item.id || item.removing}
                       className="pointer-events-auto p-2 bg-red-500 text-white rounded-full hover:scale-110 transition-transform disabled:opacity-60"
-                      title="??"
+                      title={deletingId === item.id ? "删除中" : "删除"}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {deletingId === item.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                     </button>
                   ) : null}
                 </div>
@@ -627,7 +698,11 @@ export default function History({
         <ImageModal
           url={modalSelectedItem.url}
           prompt={modalSelectedItem.prompt}
+          showEditor={false}
           mode="generator"
+          model={modalSelectedItem.model}
+          imageSize={modalSelectedItem.imageSize}
+          aspectRatio={modalSelectedItem.aspectRatio}
           referenceImages={modalSelectedItem.referenceImages}
           items={modalGalleryItems}
           selectedIndex={modalSelectedIndex}
@@ -638,12 +713,9 @@ export default function History({
               setEnlargedId(item.id);
             }
           }}
-          isSubmitting={isRegenerating}
-          error={regenerateError}
-          onRegenerate={handleRegenerate}
+          returnFocusElement={modalTriggerRef.current}
           onClose={() => {
             setEnlargedId(null);
-            setRegenerateError(null);
           }}
         />
       )}

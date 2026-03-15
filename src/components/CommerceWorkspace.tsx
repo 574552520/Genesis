@@ -95,6 +95,52 @@ type ActiveTaskCard = {
 
 type PollErrorState = Record<string, string>;
 
+function estimateTaskCount(mode: CommerceMode, input: CommerceModuleInput): number {
+  if (mode === "launch_pack") {
+    const launchInput = input as LaunchPackInput;
+    return Math.max(1, Math.min(10, Number(launchInput.requestedCount ?? launchInput.imageTaskCount) || 1));
+  }
+  if (mode === "try_on") {
+    const tryOnInput = input as TryOnInput;
+    const count = tryOnInput.sceneReferenceImages.length > 0
+      ? tryOnInput.sceneReferenceImages.length
+      : Number(tryOnInput.imageTaskCount) || 1;
+    return Math.max(1, Math.min(6, count));
+  }
+  if (mode === "lookbook") {
+    const lookbookInput = input as LookbookInput;
+    const count = lookbookInput.lookbookMode === "angle_preset"
+      ? Math.max(1, lookbookInput.selectedAngles.length || 1)
+      : Number(lookbookInput.requestedCount ?? lookbookInput.imageTaskCount) || 1;
+    return Math.max(1, Math.min(6, count));
+  }
+  const garmentInput = input as FlatlayInput | InvisibleMannequinInput;
+  const sideCount = [garmentInput.frontImage, garmentInput.backImage].filter(Boolean).length || 1;
+  return sideCount * Math.max(1, Math.min(6, Number(garmentInput.imageTaskCount) || 1));
+}
+
+function buildPendingTaskCards(mode: CommerceMode, input: CommerceModuleInput, requestId: string): ActiveTaskCard[] {
+  const createdAt = new Date().toISOString();
+  const count = estimateTaskCount(mode, input);
+  const model = input.model;
+  const prompt = "提示词生成中，稍后将自动进入正式排队。";
+
+  return Array.from({ length: count }).map((_, index) => ({
+    cardId: `pending-${requestId}-${index + 1}`,
+    createdAt,
+    title: `${MODE_LABEL[mode]} ${index + 1}`,
+    prompt,
+    aspectRatio: input.aspectRatio,
+    imageSize: input.imageSize,
+    imageUrl: null,
+    status: "queued",
+    model,
+    error: null,
+    referenceImages: [],
+    localOnly: true,
+  }));
+}
+
 function defaultForm(mode: CommerceMode): CommerceModuleInput {
   const common = {
     imageSize: "1K",
@@ -625,6 +671,17 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
   const removeArrayImage = useCallback((mode: CommerceMode, field: UploadField, index: number) => setForms((prev) => { const next = { ...(prev[mode] as Record<string, unknown>) }; const list = [...(Array.isArray(next[field]) ? next[field] as string[] : [])]; list.splice(index, 1); next[field] = list; return { ...prev, [mode]: next as unknown as CommerceModuleInput }; }), []);
   const removeSingleImage = useCallback((mode: CommerceMode, field: UploadField) => setForms((prev) => ({ ...prev, [mode]: { ...prev[mode], [field]: null } as CommerceModuleInput })), []);
   const insertPack = useCallback((mode: CommerceMode, pack: CommercePack) => setPackByMode((prev) => ({ ...prev, [mode]: [pack, ...(prev[mode] ?? []).filter((item) => item.id !== pack.id)] })), []);
+  const appendInsertedTasks = useCallback((mode: CommerceMode, cards: ActiveTaskCard[]) => {
+    if (!cards.length) return;
+    setInsertedTasks((prev) => ({ ...prev, [mode]: [...(prev[mode] ?? []), ...cards] }));
+  }, []);
+  const removeInsertedTasksByIds = useCallback((mode: CommerceMode, cardIds: string[]) => {
+    if (!cardIds.length) return;
+    setInsertedTasks((prev) => ({
+      ...prev,
+      [mode]: (prev[mode] ?? []).filter((card) => !cardIds.includes(card.cardId)),
+    }));
+  }, []);
 
   const normalizeInput = useCallback((mode: CommerceMode, baseForm: CommerceModuleInput): CommerceModuleInput => {
     if (mode === "launch_pack") {
@@ -665,7 +722,30 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
     const input = target as typeof garment; if (!input.frontImage && !input.backImage) return "请至少上传一张：正面或背面"; if (input.generationMode === "reference" && !input.referenceImages.length) return "参考模式至少需要 1 张参考图"; return null;
   }, [garment, launch]);
 
-  const submitPack = useCallback(async (mode: CommerceMode, baseForm: CommerceModuleInput, editMode = false) => { const input = normalizeInput(mode, baseForm); const validation = validate(mode, input); if (validation) throw new Error(validation); const created = await api.generateCommercePack({ mode, input, editMode } as CommerceGenerateRequest); const pack = created.pack ?? await api.getCommercePack(created.packId); insertPack(mode, pack); await onRefreshProfile(); return pack; }, [insertPack, normalizeInput, onRefreshProfile, validate]);
+  const submitPack = useCallback(async (mode: CommerceMode, baseForm: CommerceModuleInput, editMode = false) => {
+    const input = normalizeInput(mode, baseForm);
+    const validation = validate(mode, input);
+    if (validation) throw new Error(validation);
+
+    const placeholderIds = !editMode
+      ? (() => {
+          const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const placeholders = buildPendingTaskCards(mode, input, requestId);
+          appendInsertedTasks(mode, placeholders);
+          return placeholders.map((card) => card.cardId);
+        })()
+      : [];
+
+    try {
+      const created = await api.generateCommercePack({ mode, input, editMode } as CommerceGenerateRequest);
+      const pack = created.pack ?? await api.getCommercePack(created.packId);
+      insertPack(mode, pack);
+      await onRefreshProfile();
+      return pack;
+    } finally {
+      removeInsertedTasksByIds(mode, placeholderIds);
+    }
+  }, [appendInsertedTasks, insertPack, normalizeInput, onRefreshProfile, removeInsertedTasksByIds, validate]);
   const submit = async () => { setError(""); setIsSubmitting(true); try { await submitPack(activeMode, form); } catch (err) { setError(err instanceof Error ? err.message : "创建任务失败"); } finally { if (mountedRef.current) setIsSubmitting(false); } };
   const handleRegenerate = useCallback(async ({ prompt, referenceImages, model, imageSize, aspectRatio }: { prompt: string; referenceImages: string[]; model: "pro" | "v2"; imageSize: string; aspectRatio: string }) => {
     const targetMode = modal?.kind === "gallery" ? modal.mode : activeMode;

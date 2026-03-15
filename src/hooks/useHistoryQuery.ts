@@ -12,6 +12,7 @@ export function useHistoryList(limit: number, offset: number) {
   return useQuery({
     queryKey: historyKeys.list(limit, offset),
     queryFn: () => api.listHistory(limit, offset),
+    staleTime: 30_000,
   });
 }
 
@@ -54,7 +55,10 @@ export function useDeleteGenerationMutation() {
       });
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: historyKeys.all });
+      void queryClient.invalidateQueries({
+        queryKey: historyKeys.all,
+        refetchType: "inactive",
+      });
     },
   });
 }

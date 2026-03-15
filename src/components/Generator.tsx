@@ -18,6 +18,11 @@ import {
   type GeneratorSubmitResult,
 } from "../lib/generatorSubmission";
 import ImageModal from "./ImageModal";
+import {
+  buildGeneratorStyleModalItems,
+  getGeneratorStyleSelectedIndex,
+  getGeneratorStyleSelectedItem,
+} from "./generatorStyleModal";
 import type { GenerationRecord, ImageModel, JobStatus } from "../types";
 import { historyKeys } from "../hooks/useHistoryQuery";
 import {
@@ -200,6 +205,7 @@ export default function Generator({
   const [isDragOverUpload, setIsDragOverUpload] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modalTriggerRef = useRef<HTMLElement | null>(null);
   const mountedRef = useRef(true);
   const inFlightRef = useRef<Set<string>>(new Set());
   const failureCountsRef = useRef<Map<string, number>>(new Map());
@@ -761,11 +767,12 @@ export default function Generator({
 
   const modalGalleryItems = useMemo(
     () =>
-      queueItems
-        .filter((item) => Boolean(item.imageUrl || item.placeholderSourceUrl))
-        .map((item) => ({
+      buildGeneratorStyleModalItems<GenerationQueueItem>(queueItems, (item) => {
+        const url = item.imageUrl ?? item.placeholderSourceUrl;
+        if (!url) return null;
+        return {
           id: item.localId,
-          url: (item.imageUrl ?? item.placeholderSourceUrl) as string,
+          url,
           prompt: item.promptSnapshot,
           model: item.model,
           imageSize: item.imageSize,
@@ -774,17 +781,17 @@ export default function Generator({
           mode: "generator" as const,
           status: item.status,
           error: item.error,
-        })),
+        };
+      }),
     [queueItems],
   );
 
-  const modalSelectedIndex = useMemo(() => {
-    if (!modalSelectedLocalId) return 0;
-    const index = modalGalleryItems.findIndex((item) => item.id === modalSelectedLocalId);
-    return index >= 0 ? index : 0;
-  }, [modalGalleryItems, modalSelectedLocalId]);
+  const modalSelectedIndex = useMemo(
+    () => getGeneratorStyleSelectedIndex(modalGalleryItems, modalSelectedLocalId),
+    [modalGalleryItems, modalSelectedLocalId],
+  );
   const modalSelectedItem = useMemo(
-    () => modalGalleryItems.find((item) => item.id === modalSelectedLocalId) ?? null,
+    () => getGeneratorStyleSelectedItem(modalGalleryItems, modalSelectedLocalId),
     [modalGalleryItems, modalSelectedLocalId],
   );
 
@@ -1083,7 +1090,16 @@ export default function Generator({
                                 loading="lazy"
                                 decoding="async"
                                 draggable
-                                onClick={() => {
+                                tabIndex={0}
+                                onClick={(e) => {
+                                  modalTriggerRef.current = e.currentTarget;
+                                  setRegenerateError(null);
+                                  setModalSelectedLocalId(item.localId);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key !== "Enter" && e.key !== " ") return;
+                                  e.preventDefault();
+                                  modalTriggerRef.current = e.currentTarget;
                                   setRegenerateError(null);
                                   setModalSelectedLocalId(item.localId);
                                 }}
@@ -1201,7 +1217,11 @@ export default function Generator({
         <ImageModal
           url={modalSelectedItem.url}
           prompt={modalSelectedItem.prompt}
+          showEditor
           mode="generator"
+          model={modalSelectedItem.model}
+          imageSize={modalSelectedItem.imageSize}
+          aspectRatio={modalSelectedItem.aspectRatio}
           referenceImages={modalSelectedItem.referenceImages}
           items={modalGalleryItems}
           selectedIndex={modalSelectedIndex}
@@ -1215,6 +1235,7 @@ export default function Generator({
           isSubmitting={isRegenerating}
           error={regenerateError}
           onRegenerate={handleRegenerate}
+          returnFocusElement={modalTriggerRef.current}
           onClose={() => {
             setModalSelectedLocalId(null);
             setRegenerateError(null);

@@ -763,7 +763,7 @@ function buildTryOnReferenceImages(input: TryOnInput, sceneRef: string | null): 
   const productRefs = dedupeTrimmed(input.productImages);
   const modelRefs = dedupeTrimmed(input.modelReferenceImages);
   const extraRefs = dedupeTrimmed(input.referenceImages || []);
-  if (!sceneRef || input.useSceneAsTextReference !== true) {
+  if (!sceneRef || input.useSceneAsTextReference === true) {
     return dedupeTrimmed([...productRefs, ...modelRefs, ...extraRefs]);
   }
   return dedupeTrimmed([...productRefs, sceneRef, ...modelRefs, ...extraRefs]);

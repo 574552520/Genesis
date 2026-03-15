@@ -39,6 +39,8 @@ interface ImageModalProps {
   title?: string;
   prompt?: string;
   onClose: () => void;
+  returnFocusElement?: HTMLElement | null;
+  showEditor?: boolean;
   mode?: GenerationLane;
   model?: ImageModel;
   imageSize?: string;
@@ -76,6 +78,8 @@ export default function ImageModal({
   title,
   prompt,
   onClose,
+  returnFocusElement,
+  showEditor,
   mode,
   model = "v2",
   imageSize = "1K",
@@ -89,6 +93,8 @@ export default function ImageModal({
   onRegenerate,
 }: ImageModalProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
   const galleryItems = items ?? [];
   const hasGallery = galleryItems.length > 0;
   const safeIndex = hasGallery ? Math.max(0, Math.min(selectedIndex, galleryItems.length - 1)) : 0;
@@ -165,10 +171,17 @@ export default function ImageModal({
 
   useEffect(() => {
     document.body.classList.add("modal-scroll-lock");
+    const fallback = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    restoreFocusRef.current = returnFocusElement ?? fallback;
+    const frame = window.requestAnimationFrame(() => {
+      dialogRef.current?.focus();
+    });
     return () => {
+      window.cancelAnimationFrame(frame);
       document.body.classList.remove("modal-scroll-lock");
+      restoreFocusRef.current?.focus?.();
     };
-  }, []);
+  }, [returnFocusElement]);
 
   const resolvedTitle = useMemo(() => {
     if (currentTitle?.trim()) return currentTitle.trim();
@@ -176,7 +189,7 @@ export default function ImageModal({
     return MODE_LABEL[currentMode];
   }, [currentMode, currentTitle]);
 
-  const canRegenerate = Boolean(onRegenerate);
+  const canRegenerate = showEditor ?? Boolean(onRegenerate);
 
   const fileToDataUrl = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
@@ -250,10 +263,33 @@ export default function ImageModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0a0f14]/96 p-3 md:p-6">
-      <div className="flex h-full min-h-0 w-full items-stretch justify-center gap-3">
-        <div className="flex min-h-0 w-full max-w-[1600px] overflow-hidden rounded-3xl border border-white/10 bg-[#101922]/95 shadow-2xl">
-          <div className="relative flex min-h-0 flex-1 flex-col border-r border-white/10 bg-[#0a0f14]">
+    <div className="fixed inset-0 z-50 p-3 md:p-6">
+      <button
+        type="button"
+        aria-label="关闭预览"
+        onClick={onClose}
+        className="absolute inset-0 bg-[#0a0f14]/90"
+      />
+      <button
+        type="button"
+        aria-label="关闭预览"
+        onClick={onClose}
+        className="absolute right-3 top-3 z-20 inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-black/55 text-white/90 shadow-lg backdrop-blur transition-colors hover:bg-black/75 md:right-6 md:top-6"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      <div className="relative z-10 flex h-full min-h-0 w-full items-stretch justify-center">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          tabIndex={-1}
+          onClick={(event) => event.stopPropagation()}
+          className={`flex h-full min-h-0 w-full overflow-hidden rounded-3xl border border-white/10 bg-[#101922]/95 shadow-2xl outline-none ${canRegenerate ? "max-w-[1600px] flex-col lg:flex-row" : "max-w-[1240px] flex-col"}`}
+        >
+          <div
+            className={`relative flex min-h-0 flex-1 flex-col bg-[#0a0f14] ${canRegenerate ? "border-b border-white/10 lg:border-b-0 lg:border-r lg:border-white/10" : ""}`}
+          >
             <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 md:px-5">
               <div className="min-w-0">
                 <div className="truncate font-display text-xl uppercase md:text-2xl">{resolvedTitle}</div>
@@ -271,13 +307,6 @@ export default function ImageModal({
                 >
                   {downloadState === "downloading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   {downloadState === "downloading" ? "下载中" : downloadState === "failed" ? "下载失败" : "下载"}
-                </button>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/15 bg-white/5 text-white/85 transition-colors hover:bg-white/10"
-                >
-                  <X className="h-5 w-5" />
                 </button>
               </div>
             </div>
@@ -302,11 +331,11 @@ export default function ImageModal({
                 </>
               ) : null}
 
-              <div className="relative h-full w-full min-h-0 min-w-0 overflow-hidden rounded-2xl">
+              <div className="relative flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-2xl">
                 <img
                   src={currentUrl}
                   alt={resolvedTitle}
-                  className={`h-full w-full rounded-2xl object-contain shadow-2xl ${isPendingCurrent ? "blur-sm opacity-60" : ""}`}
+                  className={`max-h-full max-w-full rounded-2xl object-contain shadow-2xl ${isPendingCurrent ? "blur-sm opacity-60" : ""}`}
                   referrerPolicy="no-referrer"
                 />
                 {isPendingCurrent ? (
@@ -357,7 +386,7 @@ export default function ImageModal({
           </div>
 
           {canRegenerate ? (
-            <div className="flex min-h-0 w-full max-w-[460px] flex-col bg-[#111b24]">
+            <div className="flex min-h-0 max-h-[42vh] w-full max-w-full shrink-0 flex-col bg-[#111b24] lg:max-h-none lg:w-[460px] lg:max-w-[460px]">
               <div className="border-b border-white/10 px-4 py-4 md:px-5">
                 <h4 className="font-display text-xl uppercase">编辑图像</h4>
                 <p className="mt-1 text-xs leading-5 text-white/60">先查看原图生成提示词，再输入新的修改要求。默认参考图就是当前这张结果图，你也可以继续上传更多参考图。</p>
