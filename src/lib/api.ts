@@ -1,5 +1,13 @@
 import { supabase } from "./supabase";
-import type { CreditTier, GenerationJob, GenerationRecord, ImageModel, UserProfile } from "../types";
+import type {
+  CommerceGenerateRequest,
+  CommercePack,
+  CreditTier,
+  GenerationJob,
+  GenerationRecord,
+  ImageModel,
+  UserProfile,
+} from "../types";
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() ?? "";
 const apiBaseNormalized = apiBase.replace(/\/+$/, "");
@@ -46,6 +54,14 @@ async function apiRequest<T>(
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (
+      requireAuth &&
+      response.status === 401 &&
+      typeof payload?.error === "string" &&
+      payload.error.toLowerCase().includes("invalid or expired token")
+    ) {
+      await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
+    }
     throw new Error(payload?.error ?? `Request failed with status ${response.status}`);
   }
   return payload as T;
@@ -131,5 +147,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ tier }),
     });
+  },
+
+  async generateCommercePack(input: CommerceGenerateRequest): Promise<{ packId: string; pack: CommercePack | null }> {
+    return apiRequest("/api/commerce/pack/generate", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
+  async getCommercePack(packId: string): Promise<CommercePack> {
+    const data = await apiRequest<{ pack: CommercePack }>(`/api/commerce/pack/${packId}`);
+    return data.pack;
   },
 };

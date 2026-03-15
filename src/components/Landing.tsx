@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowUpRight, Hexagon, Search, ShoppingBag } from "lucide-react";
+import { ArrowUpRight, Hexagon } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import type { ViewState } from "../types";
 
@@ -15,8 +15,7 @@ export default function Landing({
       <div
         className="absolute inset-0 z-0 opacity-20 pointer-events-none"
         style={{
-          backgroundImage:
-            'url("https://images.unsplash.com/photo-1551582045-6ec9c11d8697?q=80&w=2000&auto=format&fit=crop")',
+          backgroundImage: 'url("/landing-bg.jpg")',
           backgroundSize: "cover",
           backgroundPosition: "center",
           mixBlendMode: "overlay",
@@ -34,8 +33,6 @@ export default function Landing({
           <button className="hover:opacity-100 transition-opacity">关于</button>
         </div>
         <div className="flex items-center gap-4">
-          <Search className="w-5 h-5 opacity-70 hover:opacity-100 cursor-pointer" />
-          <ShoppingBag className="w-5 h-5 opacity-70 hover:opacity-100 cursor-pointer" />
           <button
             onClick={() => (user ? onNavigate("dashboard") : onNavigate("auth"))}
             className="ml-4 px-4 py-2 border border-white/30 rounded-full font-mono text-sm uppercase hover:bg-white hover:text-[#647B8C] transition-colors"
@@ -89,8 +86,7 @@ export default function Landing({
                 className="w-full h-full object-cover opacity-80 mix-blend-luminosity"
                 onError={(e) => {
                   e.currentTarget.onerror = null;
-                  e.currentTarget.src =
-                    "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop";
+                  e.currentTarget.src = "/landing-bg.jpg";
                 }}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-[#647B8C] via-transparent to-transparent" />

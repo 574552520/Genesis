@@ -1,0 +1,28 @@
+{
+  "name": "gemini-api-test",
+  "version": "1.0.0",
+  "description": "Gemini 3.0 Image Pro API 测试工具，支持所有官方参数配置",
+  "main": "test-api.js",
+  "scripts": {
+    "test": "node test-api.js",
+    "dev": "npx serve .",
+    "start": "node test-api.js"
+  },
+  "keywords": [
+    "gemini",
+    "ai",
+    "image-generation",
+    "api-test"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "serve": "^14.2.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
