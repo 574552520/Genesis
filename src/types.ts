@@ -74,6 +74,13 @@ export interface GenerationRecord {
   completedAt: string | null;
 }
 
+export interface UploadedImageAsset {
+  ref: string;
+  previewUrl: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
 export interface CommerceBaseSettings {
   imageSize: string;
   aspectRatio: string;

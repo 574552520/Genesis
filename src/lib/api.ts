@@ -6,6 +6,7 @@ import type {
   GenerationJob,
   GenerationRecord,
   ImageModel,
+  UploadedImageAsset,
   UserProfile,
 } from "../types";
 
@@ -43,11 +44,12 @@ async function apiRequest<T>(
 ): Promise<T> {
   const requireAuth = options?.requireAuth ?? true;
   const headers = requireAuth ? await authHeaders() : {};
+  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(resolveApiUrl(path), {
     ...init,
     headers: {
       ...headers,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(!isFormData && init?.body ? { "Content-Type": "application/json" } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -154,6 +156,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     });
+  },
+
+  async uploadImages(files: File[]): Promise<UploadedImageAsset[]> {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append("images", file);
+    });
+    const data = await apiRequest<{ images: UploadedImageAsset[] }>(
+      "/api/uploads/images",
+      {
+        method: "POST",
+        body: formData,
+      },
+    );
+    return data.images;
   },
 
   async getCommercePack(packId: string): Promise<CommercePack> {

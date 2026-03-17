@@ -1,4 +1,5 @@
 import type { ImageModel } from "../types.js";
+import { downloadStorageRef, parseStorageRef } from "./storage.js";
 
 const apiDebugLog = process.env.API_DEBUG_LOG !== "0";
 
@@ -14,6 +15,10 @@ function sanitizeEndpoint(endpoint: string): string {
 type InlineDataStyle = "inline_data" | "inlineData";
 
 function sanitizeReferenceUrl(value: string): string {
+  const storageRef = parseStorageRef(value);
+  if (storageRef) {
+    return `storage://${storageRef.bucket}/${storageRef.path}`;
+  }
   try {
     const url = new URL(value);
     return `${url.origin}${url.pathname}`;
@@ -29,6 +34,20 @@ async function normalizeReferenceImageToPart(image: string): Promise<Record<stri
     return {
       inline_data: {
         data,
+        mime_type: mimeType,
+      },
+    };
+  }
+
+  const storageRef = parseStorageRef(image);
+  if (storageRef) {
+    const { buffer, mimeType } = await downloadStorageRef(image);
+    if (!mimeType.startsWith("image/")) {
+      throw new Error(`Unsupported reference image content type: ${mimeType || "unknown"}`);
+    }
+    return {
+      inline_data: {
+        data: buffer.toString("base64"),
         mime_type: mimeType,
       },
     };

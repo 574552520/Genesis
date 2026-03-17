@@ -12,6 +12,7 @@ import type {
   QualityWarning,
   TryOnInput,
 } from "../types.js";
+import { downloadStorageRef, parseStorageRef } from "./storage.js";
 
 interface CommerceDraft {
   copyBlocks: CopyBlock[];
@@ -787,6 +788,20 @@ async function imageToInlinePart(
     };
   }
 
+  const storageRef = parseStorageRef(image);
+  if (storageRef) {
+    const { buffer, mimeType } = await downloadStorageRef(image);
+    if (!mimeType.startsWith("image/")) {
+      throw new Error(`Unsupported ${label} content type: ${mimeType || "unknown"}`);
+    }
+    return {
+      inline_data: {
+        data: buffer.toString("base64"),
+        mime_type: mimeType,
+      },
+    };
+  }
+
   if (!/^https?:\/\//i.test(image)) {
     throw new Error(`Unsupported ${label} format`);
   }
@@ -1066,23 +1081,6 @@ function modeInstruction(mode: CommerceMode): string {
   return "Generate invisible-mannequin 3D display tasks on white background.";
 }
 
-function dataUrlToInlinePart(dataUrl: string): { inline_data: { data: string; mime_type: string } } {
-  const [header, data] = dataUrl.split(",");
-  if (!header || !data || !header.startsWith("data:")) {
-    throw new Error("Invalid lookbook base image format");
-  }
-  const mimeType = header.split(";")[0].replace("data:", "");
-  if (!mimeType) {
-    throw new Error("Invalid lookbook base image mime type");
-  }
-  return {
-    inline_data: {
-      data,
-      mime_type: mimeType,
-    },
-  };
-}
-
 async function callTextLlm(params: {
   apiBaseUrl: string;
   apiKey: string;
@@ -1187,8 +1185,10 @@ async function generateLookbookDraftStrict(input: LookbookInput): Promise<Commer
           role: "user",
           parts: [
             { text: instruction },
-            dataUrlToInlinePart(baseModelImage),
-            ...(input.lookbookMode === "angle_preset" && input.backReferenceImage ? [dataUrlToInlinePart(input.backReferenceImage)] : []),
+            await imageToInlinePart(baseModelImage, "lookbook base model image"),
+            ...(input.lookbookMode === "angle_preset" && input.backReferenceImage
+              ? [await imageToInlinePart(input.backReferenceImage, "lookbook back reference image")]
+              : []),
           ],
         },
       ],

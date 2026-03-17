@@ -8,7 +8,14 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { api } from "../lib/api";
 import { downloadImageFile } from "../lib/download";
+import {
+  buildPreviewMapFromUploads,
+  MAX_UPLOADED_IMAGE_COUNT,
+  resolveImagePreviewUrl,
+  type ImagePreviewMap,
+} from "../lib/imageUploads";
 import type { GenerationLane, ImageModel } from "../types";
 
 const COMMON_ASPECT_RATIO_PRESETS = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"] as const;
@@ -111,11 +118,13 @@ export default function ImageModal({
   const isPendingCurrent = currentStatus !== "succeeded";
   const [draftPrompt, setDraftPrompt] = useState("");
   const [draftImages, setDraftImages] = useState<string[]>(uniqueImages([currentUrl]));
+  const [draftImagePreviews, setDraftImagePreviews] = useState<ImagePreviewMap>({});
   const [draftModel, setDraftModel] = useState<ImageModel>(currentModel);
   const [draftImageSize, setDraftImageSize] = useState(currentImageSize);
   const [draftAspectRatio, setDraftAspectRatio] = useState(currentAspectRatio);
   const [copyState, setCopyState] = useState<"idle" | "done" | "failed">("idle");
   const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "failed">("idle");
+  const [localError, setLocalError] = useState<string | null>(null);
   const aspectRatioOptions = useMemo(() => ASPECT_RATIO_PRESETS_BY_MODEL[draftModel], [draftModel]);
 
   useEffect(() => {
@@ -127,6 +136,8 @@ export default function ImageModal({
 
   useEffect(() => {
     setDraftImages(uniqueImages([currentUrl]));
+    setDraftImagePreviews({});
+    setLocalError(null);
   }, [currentUrl, safeIndex, referenceImages]);
 
   useEffect(() => {
@@ -191,7 +202,7 @@ export default function ImageModal({
 
   const canRegenerate = showEditor ?? Boolean(onRegenerate);
 
-  const fileToDataUrl = (file: File): Promise<string> =>
+  const fileToDataUrlLegacy = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
@@ -199,11 +210,43 @@ export default function ImageModal({
       reader.readAsDataURL(file);
     });
 
-  const appendFiles = async (files: File[]) => {
+  const appendFilesLegacy = async (files: File[]) => {
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     if (!imageFiles.length) return;
-    const urls = await Promise.all(imageFiles.map(fileToDataUrl));
+    const urls = await Promise.all(imageFiles.map(fileToDataUrlLegacy));
     setDraftImages((prev) => uniqueImages([...prev, ...urls]));
+  };
+
+  const appendFiles = async (files: File[]) => {
+    if (draftImages.length >= MAX_UPLOADED_IMAGE_COUNT) {
+      setLocalError(`最多只能添加 ${MAX_UPLOADED_IMAGE_COUNT} 张参考图`);
+      return;
+    }
+
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    if (!imageFiles.length) {
+      setLocalError("仅支持上传图片文件");
+      return;
+    }
+
+    const remainingSlots = Math.max(0, MAX_UPLOADED_IMAGE_COUNT - draftImages.length);
+    const acceptedFiles = imageFiles.slice(0, remainingSlots);
+    if (!acceptedFiles.length) {
+      setLocalError(`最多只能添加 ${MAX_UPLOADED_IMAGE_COUNT} 张参考图`);
+      return;
+    }
+
+    setLocalError(imageFiles.length > remainingSlots ? `最多只能再添加 ${remainingSlots} 张参考图` : null);
+    try {
+      const uploaded = await api.uploadImages(acceptedFiles);
+      setDraftImagePreviews((prev) => ({
+        ...prev,
+        ...buildPreviewMapFromUploads(uploaded),
+      }));
+      setDraftImages((prev) => uniqueImages([...prev, ...uploaded.map((item) => item.ref)]));
+    } catch (uploadError) {
+      setLocalError(uploadError instanceof Error ? uploadError.message : "上传图片失败");
+    }
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -220,6 +263,8 @@ export default function ImageModal({
     if (!files.length) return;
     await appendFiles(files);
   };
+
+  const displayError = localError ?? error ?? null;
 
   const handlePrev = () => {
     if (!hasGallery || !onSelect) return;
@@ -498,9 +543,14 @@ export default function ImageModal({
                     <div className="grid grid-cols-3 gap-2">
                       {draftImages.map((image, index) => {
                         const isCurrentImage = image === currentUrl;
+                        const previewUrl = resolveImagePreviewUrl(image, draftImagePreviews);
                         return (
                           <div key={`${image}-${index}`} className="relative overflow-hidden rounded-lg border border-white/10 bg-[#0a0f14]">
-                            <img src={image} alt={`reference-${index + 1}`} className="aspect-[3/4] w-full object-cover" loading="lazy" decoding="async" />
+                            {previewUrl ? (
+                              <img src={previewUrl} alt={`reference-${index + 1}`} className="aspect-[3/4] w-full object-cover" loading="lazy" decoding="async" />
+                            ) : (
+                              <div className="flex aspect-[3/4] items-center justify-center px-2 text-center text-[10px] text-white/55">预览加载中</div>
+                            )}
                             <div className="absolute left-1 top-1 rounded border border-white/20 bg-black/70 px-1.5 py-0.5 text-[10px] text-white/90">
                               {isCurrentImage ? "当前图" : `参考图 ${index + 1}`}
                             </div>
@@ -520,7 +570,7 @@ export default function ImageModal({
                   )}
                 </div>
 
-                {error ? <div className="rounded-xl border border-red-300/40 bg-red-500/15 p-3 text-sm text-red-200">{error}</div> : null}
+                {displayError ? <div className="rounded-xl border border-red-300/40 bg-red-500/15 p-3 text-sm text-red-200">{displayError}</div> : null}
               </div>
 
               <div className="border-t border-white/10 p-4 md:p-5">

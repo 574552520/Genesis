@@ -32,6 +32,12 @@ import {
   PREVIEW_SIZE_ORDER,
   type PreviewSize,
 } from "./previewSizeConfig";
+import {
+  buildPreviewMapFromUploads,
+  MAX_UPLOADED_IMAGE_COUNT,
+  resolveImagePreviewUrl,
+  type ImagePreviewMap,
+} from "../lib/imageUploads";
 
 type QueueItemStatus = "submitting" | JobStatus;
 
@@ -192,6 +198,7 @@ export default function Generator({
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<string[]>([]);
+  const [imagePreviewMap, setImagePreviewMap] = useState<ImagePreviewMap>({});
   const [aspectRatio, setAspectRatio] = useState("1:1");
   const [size, setSize] = useState("1K");
   const [model, setModel] = useState<ImageModel>("v2");
@@ -302,7 +309,7 @@ export default function Generator({
     void restoreTodayQueue();
   }, []);
 
-  const fileToDataUrl = (file: File): Promise<string> =>
+  const fileToDataUrlLegacy = (file: File): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
@@ -310,7 +317,7 @@ export default function Generator({
       reader.readAsDataURL(file);
     });
 
-  const appendImagesFromFiles = useCallback(
+  const appendImagesFromFilesLegacy = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
 
@@ -334,7 +341,7 @@ export default function Generator({
 
       const acceptedFiles = imageFiles.slice(0, remainingSlots);
       try {
-        const encoded = await Promise.all(acceptedFiles.map((file) => fileToDataUrl(file)));
+        const encoded = await Promise.all(acceptedFiles.map((file) => fileToDataUrlLegacy(file)));
         setImages((prev) => [...prev, ...encoded].slice(0, 6));
       } catch (error) {
         setGlobalError(error instanceof Error ? error.message : "读取图片失败，请重试。");
@@ -499,7 +506,11 @@ export default function Generator({
   const submitTask = useCallback(
     async (input: GeneratorSubmitInput, options?: GeneratorSubmitOptions): Promise<GeneratorSubmitResult> => {
       const localId = makeLocalId();
-      const placeholderSourceUrl = options?.sourceImageUrl ?? input.referenceImages[0] ?? null;
+      const placeholderSourceUrl =
+        options?.sourceImageUrl ??
+        resolveImagePreviewUrl(input.referenceImages[0] ?? null, imagePreviewMap) ??
+        input.referenceImages[0] ??
+        null;
       const optimisticItem: GenerationQueueItem = {
         localId,
         jobId: null,
@@ -659,7 +670,7 @@ export default function Generator({
 
       return { ok: true, localId };
     },
-    [invalidateHistoryCache, onGenerationDone, pollSingleJob],
+    [imagePreviewMap, invalidateHistoryCache, onGenerationDone, pollSingleJob],
   );
 
   useEffect(() => {
@@ -786,6 +797,45 @@ export default function Generator({
     [queueItems],
   );
 
+  const appendImagesFromFiles = useCallback(
+    async (files: File[]) => {
+      if (!files.length) return;
+
+      if (images.length >= MAX_UPLOADED_IMAGE_COUNT) {
+        setGlobalError(`最多只支持 ${MAX_UPLOADED_IMAGE_COUNT} 张参考图片。`);
+        return;
+      }
+
+      const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+      if (!imageFiles.length) {
+        setGlobalError("仅支持上传图片文件。");
+        return;
+      }
+
+      const remainingSlots = Math.max(0, MAX_UPLOADED_IMAGE_COUNT - images.length);
+      if (imageFiles.length > remainingSlots) {
+        setGlobalError(`最多只能再添加 ${remainingSlots} 张参考图。`);
+      } else {
+        setGlobalError(null);
+      }
+
+      const acceptedFiles = imageFiles.slice(0, remainingSlots);
+      if (!acceptedFiles.length) return;
+
+      try {
+        const uploaded = await api.uploadImages(acceptedFiles);
+        setImagePreviewMap((prev) => ({
+          ...prev,
+          ...buildPreviewMapFromUploads(uploaded),
+        }));
+        setImages((prev) => [...prev, ...uploaded.map((item) => item.ref)].slice(0, MAX_UPLOADED_IMAGE_COUNT));
+      } catch (uploadError) {
+        setGlobalError(uploadError instanceof Error ? uploadError.message : "上传图片失败，请重试。");
+      }
+    },
+    [images.length],
+  );
+
   const modalSelectedIndex = useMemo(
     () => getGeneratorStyleSelectedIndex(modalGalleryItems, modalSelectedLocalId),
     [modalGalleryItems, modalSelectedLocalId],
@@ -897,7 +947,7 @@ export default function Generator({
                   className="relative aspect-square rounded-lg overflow-hidden border border-white/20 group"
                 >
                   <img
-                    src={img}
+                    src={resolveImagePreviewUrl(img, imagePreviewMap) ?? img}
                     alt={`参考图 ${i + 1}`}
                     className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"

@@ -23,6 +23,12 @@ import {
   PREVIEW_SIZE_ORDER,
   type PreviewSize,
 } from "./previewSizeConfig";
+import {
+  buildPreviewMapFromUploads,
+  MAX_UPLOADED_IMAGE_COUNT,
+  resolveImagePreviewUrl,
+  type ImagePreviewMap,
+} from "../lib/imageUploads";
 
 const MODE_ORDER: CommerceMode[] = [
   "launch_pack",
@@ -104,7 +110,7 @@ function estimateTaskCount(mode: CommerceMode, input: CommerceModuleInput): numb
     const tryOnInput = input as TryOnInput;
     const count = tryOnInput.sceneReferenceImages.length > 0
       ? tryOnInput.sceneReferenceImages.length
-      : Number(tryOnInput.imageTaskCount) || 1;
+      : 1;
     return Math.max(1, Math.min(6, count));
   }
   if (mode === "lookbook") {
@@ -173,6 +179,7 @@ function defaultForm(mode: CommerceMode): CommerceModuleInput {
     return {
       mode,
       ...common,
+      imageTaskCount: 1,
       productImages: [],
       descriptionPrompt: "",
       genderCategory: "womenswear",
@@ -354,7 +361,7 @@ function UploadZone({ zoneId, label, hint, dragOver, onPick, onDragOver, onDragL
     </button>
   );
 }
-function PreviewCard({ title, image, onOpen, onRemove, hideMeta = false }: { title: string; image?: string | null; onOpen: (url: string) => void; onRemove?: () => void; hideMeta?: boolean; }) {
+function PreviewCard({ title, image, previewUrl, onOpen, onRemove, hideMeta = false }: { title: string; image?: string | null; previewUrl?: string | null; onOpen: (url: string) => void; onRemove?: () => void; hideMeta?: boolean; }) {
   if (!image) return null;
   return (
     <div className={hideMeta ? "" : "space-y-2"}>
@@ -365,14 +372,16 @@ function PreviewCard({ title, image, onOpen, onRemove, hideMeta = false }: { tit
         </div>
       ) : null}
       <div className="relative rounded-xl overflow-hidden border border-white/10">
-        <button type="button" onClick={() => onOpen(image)} className="block w-full aspect-[3/4] bg-[#0a0f14]"><img src={image} alt={title} className="w-full h-full object-cover" /></button>
+        <button type="button" onClick={() => previewUrl ? onOpen(previewUrl) : undefined} className="block w-full aspect-[3/4] bg-[#0a0f14]">
+          {previewUrl ? <img src={previewUrl} alt={title} className="w-full h-full object-cover" /> : <div className="flex h-full w-full items-center justify-center px-3 text-center text-[10px] text-white/55">预览加载中</div>}
+        </button>
         {onRemove ? <button type="button" onClick={onRemove} className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-[10px] border border-white/30">移除</button> : null}
       </div>
     </div>
   );
 }
 
-function ImagePreviewGrid({ title, images, onRemove, onOpen, onAdd, showAddSlot = false, maxCount = 6, addLabel = "添加图片", addZoneId, dragOver, onDragOver, onDragLeave, onDrop }: { title: string; images: string[]; onRemove: (index: number) => void; onOpen: (url: string) => void; onAdd?: () => void; showAddSlot?: boolean; maxCount?: number; addLabel?: string; addZoneId?: string; dragOver?: string | null; onDragOver?: (e: React.DragEvent<HTMLButtonElement>, zoneId: string) => void; onDragLeave?: (e: React.DragEvent<HTMLButtonElement>, zoneId: string) => void; onDrop?: (e: React.DragEvent<HTMLButtonElement>, zoneId: string) => void; }) {
+function ImagePreviewGrid({ title, images, resolvePreviewUrl, onRemove, onOpen, onAdd, showAddSlot = false, maxCount = 6, addLabel = "添加图片", addZoneId, dragOver, onDragOver, onDragLeave, onDrop }: { title: string; images: string[]; resolvePreviewUrl: (url: string) => string | null; onRemove: (index: number) => void; onOpen: (url: string) => void; onAdd?: () => void; showAddSlot?: boolean; maxCount?: number; addLabel?: string; addZoneId?: string; dragOver?: string | null; onDragOver?: (e: React.DragEvent<HTMLButtonElement>, zoneId: string) => void; onDragLeave?: (e: React.DragEvent<HTMLButtonElement>, zoneId: string) => void; onDrop?: (e: React.DragEvent<HTMLButtonElement>, zoneId: string) => void; }) {
   const canAdd = Boolean(showAddSlot && onAdd && images.length < maxCount && addZoneId);
   if (!images.length && !canAdd) return null;
   const addActive = canAdd && dragOver === addZoneId;
@@ -380,12 +389,17 @@ function ImagePreviewGrid({ title, images, onRemove, onOpen, onAdd, showAddSlot 
     <div className="space-y-2">
       <div className="flex items-center justify-between"><p className="text-[11px] uppercase tracking-wide opacity-80">{title}</p><p className="font-mono text-[10px] uppercase opacity-70">{images.length}/{maxCount}</p></div>
       <div className="grid grid-cols-3 gap-2">
-        {images.map((image, index) => (
-          <div key={`${title}-${index}`} className="relative rounded-lg border border-white/10 overflow-hidden">
-            <button type="button" onClick={() => onOpen(image)} className="block w-full aspect-[3/4] bg-[#0a0f14]"><img src={image} alt={`${title}-${index + 1}`} className="w-full h-full object-cover" /></button>
-            <button type="button" onClick={() => onRemove(index)} className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-[10px] border border-white/30">移除</button>
-          </div>
-        ))}
+        {images.map((image, index) => {
+          const previewUrl = resolvePreviewUrl(image);
+          return (
+            <div key={`${title}-${index}`} className="relative rounded-lg border border-white/10 overflow-hidden">
+              <button type="button" onClick={() => previewUrl ? onOpen(previewUrl) : undefined} className="block w-full aspect-[3/4] bg-[#0a0f14]">
+                {previewUrl ? <img src={previewUrl} alt={`${title}-${index + 1}`} className="w-full h-full object-cover" /> : <div className="flex h-full w-full items-center justify-center px-2 text-center text-[10px] text-white/55">预览加载中</div>}
+              </button>
+              <button type="button" onClick={() => onRemove(index)} className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/60 text-[10px] border border-white/30">移除</button>
+            </div>
+          );
+        })}
         {canAdd ? <button type="button" onClick={onAdd} onDragOver={(e) => onDragOver?.(e, addZoneId as string)} onDragLeave={(e) => onDragLeave?.(e, addZoneId as string)} onDrop={(e) => onDrop?.(e, addZoneId as string)} className={`aspect-[3/4] rounded-lg border border-dashed flex flex-col items-center justify-center gap-2 text-[11px] uppercase tracking-wide transition-colors ${addActive ? "border-white/80 bg-white/10" : "border-white/30 hover:bg-white/5"}`}><Upload className="w-4 h-4" /><span>{addLabel}</span></button> : null}
       </div>
     </div>
@@ -397,12 +411,12 @@ function SectionToggle({ title, count, open, onToggle }: { title: string; count:
   return <button type="button" onClick={onToggle} className="w-full flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-left"><div><p className="text-[11px] uppercase tracking-wide opacity-80">{title}</p><p className="font-mono text-[10px] uppercase opacity-55 mt-1">已上传 {count} 张</p></div><Icon className="w-4 h-4 opacity-70" /></button>;
 }
 
-function GarmentInputs({ activeMode, garment, dragOver, setDragOver, openPicker, handleDrop, removeSingleImage, setField, setModal }: any) {
+function GarmentInputs({ activeMode, garment, dragOver, setDragOver, openPicker, handleDrop, removeSingleImage, setField, setModal, resolvePreviewUrl }: any) {
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {garment.frontImage ? <PreviewCard title="正面图" image={garment.frontImage} hideMeta onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "frontImage")} /> : <UploadZone zoneId={`${activeMode}-front`} label="上传正面图" hint="支持点击或拖拽上传" dragOver={dragOver} onPick={() => openPicker(activeMode, "frontImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "frontImage", true, z)} />}
-        {garment.backImage ? <PreviewCard title="背面图" image={garment.backImage} hideMeta onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "backImage")} /> : <UploadZone zoneId={`${activeMode}-back`} label="上传背面图" hint="支持点击或拖拽上传" dragOver={dragOver} onPick={() => openPicker(activeMode, "backImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "backImage", true, z)} />}
+        {garment.frontImage ? <PreviewCard title="正面图" image={garment.frontImage} previewUrl={resolvePreviewUrl(garment.frontImage)} hideMeta onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "frontImage")} /> : <UploadZone zoneId={`${activeMode}-front`} label="上传正面图" hint="支持点击或拖拽上传" dragOver={dragOver} onPick={() => openPicker(activeMode, "frontImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "frontImage", true, z)} />}
+        {garment.backImage ? <PreviewCard title="背面图" image={garment.backImage} previewUrl={resolvePreviewUrl(garment.backImage)} hideMeta onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "backImage")} /> : <UploadZone zoneId={`${activeMode}-back`} label="上传背面图" hint="支持点击或拖拽上传" dragOver={dragOver} onPick={() => openPicker(activeMode, "backImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "backImage", true, z)} />}
       </div>
       <div className="grid grid-cols-2 gap-2">
         <select aria-label="生成模式" value={garment.generationMode} onChange={(e) => setField(activeMode, "generationMode", e.target.value)} className="bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"><option value="smart">智能模式</option><option value="reference">参考模式</option></select>
@@ -414,7 +428,7 @@ function GarmentInputs({ activeMode, garment, dragOver, setDragOver, openPicker,
   );
 }
 
-function LaunchPackInputs({ launch, dragOver, setDragOver, openPicker, handleDrop, removeArrayImage, setField, setModal }: { launch: LaunchPackInput; dragOver: string | null; setDragOver: React.Dispatch<React.SetStateAction<string | null>>; openPicker: (mode: CommerceMode, field: UploadField, single?: boolean) => void; handleDrop: (e: React.DragEvent<HTMLButtonElement>, mode: CommerceMode, field: UploadField, single?: boolean, zoneId?: string) => Promise<void>; removeArrayImage: (mode: CommerceMode, field: UploadField, index: number) => void; setField: (mode: CommerceMode, key: string, value: unknown) => void; setModal: React.Dispatch<React.SetStateAction<ModalState | null>>; }) {
+function LaunchPackInputs({ launch, dragOver, setDragOver, openPicker, handleDrop, removeArrayImage, setField, setModal, resolvePreviewUrl }: { launch: LaunchPackInput; dragOver: string | null; setDragOver: React.Dispatch<React.SetStateAction<string | null>>; openPicker: (mode: CommerceMode, field: UploadField, single?: boolean) => void; handleDrop: (e: React.DragEvent<HTMLButtonElement>, mode: CommerceMode, field: UploadField, single?: boolean, zoneId?: string) => Promise<void>; removeArrayImage: (mode: CommerceMode, field: UploadField, index: number) => void; setField: (mode: CommerceMode, key: string, value: unknown) => void; setModal: React.Dispatch<React.SetStateAction<ModalState | null>>; resolvePreviewUrl: (url: string) => string | null; }) {
   const platformTip = launch.platform === "douyin"
     ? "抖音电商模板优先强调前几页的节奏感、强卖点和高转化视觉。"
     : launch.platform === "amazon"
@@ -454,7 +468,7 @@ function LaunchPackInputs({ launch, dragOver, setDragOver, openPicker, handleDro
       <textarea aria-label="自由描述" value={launch.descriptionPrompt || ""} onChange={(e) => setField("launch_pack", "descriptionPrompt", e.target.value)} placeholder="例如：轻薄保暖、领口贴合、不臃肿；希望前两页突出显瘦和面料质感，整体更像淘宝爆款详情页。" className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 min-h-[96px] text-sm" />
       <HelpLabel title="商品素材池" tip="素材上传和商品素材池是同一个概念。请把你手上现有的全部商品图都传进来，系统会自动整合颜色、角度、细节图、上身图和可用于不同详情页的素材角色。" />
       {launch.referenceImages.length > 0 ? (
-        <ImagePreviewGrid title="商品素材池" images={launch.referenceImages} onRemove={(i) => removeArrayImage("launch_pack", "referenceImages", i)} onOpen={(url) => setModal({ kind: "single", url, title: "商品素材图" })} onAdd={() => openPicker("launch_pack", "referenceImages")} showAddSlot addZoneId="launch-main-add" dragOver={dragOver} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, "launch_pack", "referenceImages", false, z)} addLabel="补充素材" />
+        <ImagePreviewGrid title="商品素材池" images={launch.referenceImages} resolvePreviewUrl={resolvePreviewUrl} onRemove={(i) => removeArrayImage("launch_pack", "referenceImages", i)} onOpen={(url) => setModal({ kind: "single", url, title: "商品素材图" })} onAdd={() => openPicker("launch_pack", "referenceImages")} showAddSlot addZoneId="launch-main-add" dragOver={dragOver} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, "launch_pack", "referenceImages", false, z)} addLabel="补充素材" />
       ) : (
         <UploadZone zoneId="launch-main" label="上传商品素材" hint="支持多图 / 多色 / 多角度，最多 6 张" dragOver={dragOver} onPick={() => openPicker("launch_pack", "referenceImages")} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev: string | null) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, "launch_pack", "referenceImages", false, z)} />
       )}
@@ -468,6 +482,7 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
   const [packByMode, setPackByMode] = useState<Partial<Record<CommerceMode, CommercePack[]>>>({});
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [imagePreviewMap, setImagePreviewMap] = useState<ImagePreviewMap>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
@@ -492,6 +507,7 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
   const tryOn = form as TryOnInput;
   const lookbook = form as LookbookInput;
   const garment = form as Extract<CommerceModuleInput, { mode: "flatlay" }> | Extract<CommerceModuleInput, { mode: "invisible_mannequin_3d" }>;
+  const resolvePreviewUrl = useCallback((value: string | null | undefined) => resolveImagePreviewUrl(value, imagePreviewMap), [imagePreviewMap]);
   const activePacks = useMemo(() => packByMode[activeMode] ?? [], [packByMode, activeMode]);
   const mergedTasksByMode = useMemo<Record<CommerceMode, ActiveTaskCard[]>>(() => {
     const next = {} as Record<CommerceMode, ActiveTaskCard[]>;
@@ -663,9 +679,40 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
 
   const cyclePreviewSize = useCallback(() => { const i = PREVIEW_SIZE_ORDER.indexOf(previewSize); onPreviewSizeChange(PREVIEW_SIZE_ORDER[(i + 1) % PREVIEW_SIZE_ORDER.length]); }, [onPreviewSizeChange, previewSize]);
   const setField = useCallback((mode: CommerceMode, key: string, value: unknown) => setForms((prev) => ({ ...prev, [mode]: { ...prev[mode], [key]: value } as CommerceModuleInput })), []);
-  const fileToDataUrl = (file: File) => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onloadend = () => resolve(reader.result as string); reader.onerror = () => reject(new Error("读取图片失败")); reader.readAsDataURL(file); });
   const pushImages = useCallback((mode: CommerceMode, field: UploadField, urls: string[], single = false) => setForms((prev) => { const next = { ...(prev[mode] as Record<string, unknown>) }; next[field] = single ? urls[0] ?? next[field] : dedupe([...(Array.isArray(next[field]) ? next[field] as string[] : []), ...urls]); return { ...prev, [mode]: next as unknown as CommerceModuleInput }; }), []);
-  const addFiles = useCallback(async (mode: CommerceMode, field: UploadField, files: File[], single = false) => { const images = files.filter((file) => file.type.startsWith("image/")); if (!images.length) return setError("仅支持图片文件"); pushImages(mode, field, await Promise.all(images.map(fileToDataUrl)), single); }, [pushImages]);
+  const addFiles = useCallback(async (mode: CommerceMode, field: UploadField, files: File[], single = false) => {
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+    if (!imageFiles.length) {
+      setError("仅支持图片文件");
+      return;
+    }
+
+    const currentField = (forms[mode] as Record<string, unknown>)[field];
+    const currentCount = single ? (currentField ? 1 : 0) : Array.isArray(currentField) ? currentField.length : 0;
+    const remainingSlots = single ? 1 : Math.max(0, MAX_UPLOADED_IMAGE_COUNT - currentCount);
+    if (remainingSlots <= 0) {
+      setError(single ? "这里只支持 1 张图片" : `最多只能上传 ${MAX_UPLOADED_IMAGE_COUNT} 张图片`);
+      return;
+    }
+
+    if (!single && imageFiles.length > remainingSlots) {
+      setError(`最多只能再添加 ${remainingSlots} 张参考图`);
+    } else {
+      setError("");
+    }
+
+    const acceptedFiles = imageFiles.slice(0, remainingSlots);
+    try {
+      const uploaded = await api.uploadImages(acceptedFiles);
+      setImagePreviewMap((prev) => ({
+        ...prev,
+        ...buildPreviewMapFromUploads(uploaded),
+      }));
+      pushImages(mode, field, uploaded.map((item) => item.ref), single);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "上传图片失败");
+    }
+  }, [forms, pushImages]);
   const openPicker = useCallback((mode: CommerceMode, field: UploadField, single = false) => { const input = document.createElement("input"); input.type = "file"; input.accept = "image/*"; input.multiple = !single; input.onchange = () => void addFiles(mode, field, Array.from(input.files ?? []) as File[], single); input.click(); }, [addFiles]);
   const handleDrop = useCallback(async (e: React.DragEvent<HTMLButtonElement>, mode: CommerceMode, field: UploadField, single = false, zoneId?: string) => { e.preventDefault(); if (zoneId) setDragOver((prev) => prev === zoneId ? null : prev); const files = Array.from(e.dataTransfer.files ?? []) as File[]; if (!files.length) return; await addFiles(mode, field, files, single); }, [addFiles]);
   const removeArrayImage = useCallback((mode: CommerceMode, field: UploadField, index: number) => setForms((prev) => { const next = { ...(prev[mode] as Record<string, unknown>) }; const list = [...(Array.isArray(next[field]) ? next[field] as string[] : [])]; list.splice(index, 1); next[field] = list; return { ...prev, [mode]: next as unknown as CommerceModuleInput }; }), []);
@@ -683,7 +730,7 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
     }));
   }, []);
 
-  const normalizeInput = useCallback((mode: CommerceMode, baseForm: CommerceModuleInput): CommerceModuleInput => {
+  const normalizeInput = useCallback((mode: CommerceMode, baseForm: CommerceModuleInput, editMode = false): CommerceModuleInput => {
     if (mode === "launch_pack") {
       const input = baseForm as LaunchPackInput;
       const requestedCount = LAUNCH_COUNT_OPTIONS.includes(input.requestedCount as typeof LAUNCH_COUNT_OPTIONS[number]) ? input.requestedCount : 4;
@@ -691,11 +738,13 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
     }
     if (mode === "try_on") {
       const input = baseForm as TryOnInput;
-      const count = input.sceneReferenceImages.length > 0 ? input.sceneReferenceImages.length : input.imageTaskCount;
+      const count = editMode
+        ? Math.max(1, Math.min(6, Number(input.imageTaskCount) || 1))
+        : Math.max(1, Math.min(6, input.sceneReferenceImages.length || 1));
       return {
         ...input,
         descriptionPrompt: input.descriptionPrompt?.trim() || undefined,
-        imageTaskCount: Math.max(1, Math.min(6, Number(count) || 1)),
+        imageTaskCount: count,
         useModelReference: input.modelReferenceImages.length > 0,
         useSceneAsTextReference: input.useSceneAsTextReference === true,
       };
@@ -715,16 +764,16 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
     return baseForm;
   }, [garment]);
 
-  const validate = useCallback((mode: CommerceMode, target: CommerceModuleInput) => {
+  const validate = useCallback((mode: CommerceMode, target: CommerceModuleInput, editMode = false) => {
     if (mode === "launch_pack") { const input = target as LaunchPackInput; if (!input.productName) return "服装详情页需要填写商品名称"; if (!input.referenceImages.length) return "服装详情页至少需要 1 张商品素材图"; return null; }
-    if (mode === "try_on") { const input = target as TryOnInput; if (!input.productImages.length) return "试穿至少需要 1 张服装图"; return null; }
+    if (mode === "try_on") { const input = target as TryOnInput; if (!input.productImages.length) return "试穿至少需要 1 张服装图"; if (!editMode && !input.sceneReferenceImages.length) return "请先上传场景参考图才能继续"; return null; }
     if (mode === "lookbook") { const input = target as LookbookInput; if (!input.baseModelImage) return "Lookbook 需要 1 张基础模特图"; return null; }
     const input = target as typeof garment; if (!input.frontImage && !input.backImage) return "请至少上传一张：正面或背面"; if (input.generationMode === "reference" && !input.referenceImages.length) return "参考模式至少需要 1 张参考图"; return null;
   }, [garment, launch]);
 
   const submitPack = useCallback(async (mode: CommerceMode, baseForm: CommerceModuleInput, editMode = false) => {
-    const input = normalizeInput(mode, baseForm);
-    const validation = validate(mode, input);
+    const input = normalizeInput(mode, baseForm, editMode);
+    const validation = validate(mode, input, editMode);
     if (validation) throw new Error(validation);
 
     const placeholderIds = !editMode
@@ -919,12 +968,13 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
         <section className="xl:col-span-4 2xl:col-span-3 min-h-0 flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#3A4A54]/20 workspace-scroll-lock">
           <div className="sticky top-0 z-10 border-b border-white/10 bg-[#202d35]/95 px-4 py-4"><div className="flex items-start justify-between gap-4"><div><h3 className="font-display text-xl uppercase">{MODE_LABEL[activeMode]}</h3></div><button onClick={() => void submit()} disabled={isSubmitting} className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 font-mono text-xs uppercase text-[#647B8C] disabled:opacity-60">{isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}{isSubmitting ? "提交中..." : "开始生成"}</button></div></div>
           <div className="min-h-0 flex-1 overflow-y-auto workspace-scroll-area p-4 space-y-4">
-            {activeMode === "launch_pack" ? <LaunchPackInputs launch={launch} dragOver={dragOver} setDragOver={setDragOver} openPicker={openPicker} handleDrop={handleDrop} removeArrayImage={removeArrayImage} setField={setField} setModal={setModal} /> : null}
+            {activeMode === "launch_pack" ? <LaunchPackInputs launch={launch} dragOver={dragOver} setDragOver={setDragOver} openPicker={openPicker} handleDrop={handleDrop} removeArrayImage={removeArrayImage} setField={setField} setModal={setModal} resolvePreviewUrl={resolvePreviewUrl} /> : null}
             {activeMode === "try_on" ? (
               <>
                 <ImagePreviewGrid
                   title="服装图"
                   images={tryOn.productImages}
+                  resolvePreviewUrl={resolvePreviewUrl}
                   onRemove={(i) => removeArrayImage(activeMode, "productImages", i)}
                   onOpen={(url) => setModal({ kind: "single", url })}
                   onAdd={() => openPicker(activeMode, "productImages")}
@@ -974,7 +1024,7 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
                   </select>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70 leading-6">
-                  系统会用你上传的服装图替换参考人物当前穿着。上传场景参考图时优先复用场景、构图与姿态；上传模特参考图时优先复用人物身份；两类都不传时会随机生成适合该服装展示的环境。
+                  请先上传至少 1 张场景参考图再开始生成。系统会用你上传的服装图替换参考人物当前穿着，优先复用场景图中的场景、构图与姿态；模特参考图仍为可选，用于优先复用人物身份。
                 </div>
                 <SectionToggle
                   title="场景参考图"
@@ -1015,6 +1065,7 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
                     <ImagePreviewGrid
                       title="场景参考图"
                       images={tryOn.sceneReferenceImages}
+                      resolvePreviewUrl={resolvePreviewUrl}
                       onRemove={(i) => removeArrayImage(activeMode, "sceneReferenceImages", i)}
                       onOpen={(url) => setModal({ kind: "single", url })}
                       onAdd={() => openPicker(activeMode, "sceneReferenceImages")}
@@ -1043,6 +1094,7 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
                   <ImagePreviewGrid
                     title="模特参考图"
                     images={tryOn.modelReferenceImages}
+                    resolvePreviewUrl={resolvePreviewUrl}
                     onRemove={(i) => removeArrayImage(activeMode, "modelReferenceImages", i)}
                     onOpen={(url) => setModal({ kind: "single", url })}
                     onAdd={() => openPicker(activeMode, "modelReferenceImages")}
@@ -1066,12 +1118,12 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {lookbook.baseModelImage ? (
-                    <PreviewCard title="基础模特图" image={lookbook.baseModelImage} onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "baseModelImage")} />
+                    <PreviewCard title="基础模特图" image={lookbook.baseModelImage} previewUrl={resolvePreviewUrl(lookbook.baseModelImage)} onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "baseModelImage")} />
                   ) : (
                     <UploadZone zoneId="lookbook-base" label="上传基础模特图" hint="1 张即可；系统会据此生成多动作图" dragOver={dragOver} onPick={() => openPicker(activeMode, "baseModelImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "baseModelImage", true, z)} />
                   )}
                   {lookbook.backReferenceImage ? (
-                    <PreviewCard title="产品背面参考图（可选）" image={lookbook.backReferenceImage} onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "backReferenceImage")} />
+                    <PreviewCard title="产品背面参考图（可选）" image={lookbook.backReferenceImage} previewUrl={resolvePreviewUrl(lookbook.backReferenceImage)} onOpen={(url) => setModal({ kind: "single", url })} onRemove={() => removeSingleImage(activeMode, "backReferenceImage")} />
                   ) : (
                     <UploadZone zoneId="lookbook-back-ref" label="上传产品背面参考图（可选）" hint="仅在背面任务中引用" dragOver={dragOver} onPick={() => openPicker(activeMode, "backReferenceImage", true)} onDragOver={(e, z) => { e.preventDefault(); setDragOver(z); }} onDragLeave={(e, z) => { e.preventDefault(); setDragOver((prev) => prev === z ? null : prev); }} onDrop={(e, z) => void handleDrop(e, activeMode, "backReferenceImage", true, z)} />
                   )}
@@ -1103,7 +1155,7 @@ function CommerceWorkspace({ onRefreshProfile, previewSize, onPreviewSizeChange 
                 </div>
               </>
             ) : null}
-            {(activeMode === "flatlay" || activeMode === "invisible_mannequin_3d") ? <GarmentInputs activeMode={activeMode} garment={garment} dragOver={dragOver} setDragOver={setDragOver} openPicker={openPicker} handleDrop={handleDrop} removeSingleImage={removeSingleImage} setField={setField} setModal={setModal} /> : null}
+            {(activeMode === "flatlay" || activeMode === "invisible_mannequin_3d") ? <GarmentInputs activeMode={activeMode} garment={garment} dragOver={dragOver} setDragOver={setDragOver} openPicker={openPicker} handleDrop={handleDrop} removeSingleImage={removeSingleImage} setField={setField} setModal={setModal} resolvePreviewUrl={resolvePreviewUrl} /> : null}
             <HelpLabel title="模型" tip="选择图像模型。Pro 更稳，v2 通常更快。" />
             <select aria-label="模型" value={form.model} onChange={(e) => setField(activeMode, "model", e.target.value)} className="w-full bg-[#3A4A54]/30 border border-white/20 rounded-lg p-2 text-xs"><option value="pro">Pro</option><option value="v2">v2</option></select>
             <HelpLabel title="图像尺寸" tip="输出分辨率等级：1K / 2K / 4K。" />
