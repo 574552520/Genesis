@@ -27,16 +27,23 @@ file_size_limit = "50MiB"
 
 [auth]
 enabled = true
-site_url = "https://www.浮世绘.top"
-additional_redirect_urls = ["https://www.浮世绘.top", "https://浮世绘.top"]
+site_url = "https://www.xn--0-bf3b.com"
+additional_redirect_urls = [
+  "https://www.xn--0-bf3b.com",
+  "https://xn--0-bf3b.com",
+  "https://www.0帧.com",
+  "https://0帧.com",
+  "https://www.xn--rhqy77ef4l.top",
+  "https://xn--rhqy77ef4l.top"
+]
 jwt_expiry = 3600
-enable_signup = false
+enable_signup = true
 enable_anonymous_sign_ins = false
 
 [auth.email]
 enable_signup = true
 double_confirm_changes = false
-enable_confirmations = true
+enable_confirmations = false
 
 [analytics]
 enabled = false

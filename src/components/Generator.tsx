@@ -18,6 +18,7 @@ import {
   type GeneratorSubmitResult,
 } from "../lib/generatorSubmission";
 import ImageModal from "./ImageModal";
+import { buildPreviewMapFromUploads, resolveImagePreviewUrl, type ImagePreviewMap } from "../lib/imageUploads";
 import {
   buildGeneratorStyleModalItems,
   getGeneratorStyleSelectedIndex,
@@ -46,7 +47,6 @@ interface GenerationQueueItem {
   createdAt: string;
   status: QueueItemStatus;
   imageUrl: string | null;
-  previewImageUrl: string | null;
   imageRenderFailed: boolean;
   error: string | null;
   syncWarning: string | null;
@@ -135,7 +135,6 @@ function historyItemToQueueItem(item: GenerationRecord): GenerationQueueItem {
     createdAt: item.createdAt,
     status: item.status,
     imageUrl: item.imageUrl,
-    previewImageUrl: item.previewImageUrl,
     imageRenderFailed: false,
     error: item.error,
     syncWarning: null,
@@ -194,6 +193,7 @@ export default function Generator({
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
   const [images, setImages] = useState<string[]>([]);
+  const [previewUrlByRef, setPreviewUrlByRef] = useState<ImagePreviewMap>({});
   const [aspectRatio, setAspectRatio] = useState("1:1");
   const [size, setSize] = useState("1K");
   const [model, setModel] = useState<ImageModel>("v2");
@@ -288,7 +288,7 @@ export default function Generator({
   useEffect(() => {
     const restoreTodayQueue = async () => {
       try {
-        const history = await api.listHistory(40, 0);
+        const history = await api.listHistory(120, 0);
         if (!mountedRef.current) return;
 
         const todayItems = history.items
@@ -303,14 +303,6 @@ export default function Generator({
 
     void restoreTodayQueue();
   }, []);
-
-  const fileToDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error("读取图片失败，请重试。"));
-      reader.readAsDataURL(file);
-    });
 
   const appendImagesFromFiles = useCallback(
     async (files: File[]) => {
@@ -336,10 +328,11 @@ export default function Generator({
 
       const acceptedFiles = imageFiles.slice(0, remainingSlots);
       try {
-        const encoded = await Promise.all(acceptedFiles.map((file) => fileToDataUrl(file)));
-        setImages((prev) => [...prev, ...encoded].slice(0, 6));
+        const uploaded = await api.uploadImages(acceptedFiles);
+        setPreviewUrlByRef((prev) => ({ ...prev, ...buildPreviewMapFromUploads(uploaded) }));
+        setImages((prev) => [...prev, ...uploaded.map((item) => item.ref)].slice(0, 6));
       } catch (error) {
-        setGlobalError(error instanceof Error ? error.message : "读取图片失败，请重试。");
+        setGlobalError(error instanceof Error ? error.message : "上传图片失败，请重试。");
       }
     },
     [images.length],
@@ -430,7 +423,6 @@ export default function Generator({
               ...item,
               status: next.status,
               imageUrl: next.imageUrl ?? item.imageUrl,
-              previewImageUrl: next.previewImageUrl ?? next.imageUrl ?? item.previewImageUrl ?? item.imageUrl,
               imageRenderFailed: next.imageUrl ? false : item.imageRenderFailed,
               error: next.status === "failed" ? (next.error ?? "生成失败") : item.error,
               syncWarning:
@@ -514,7 +506,6 @@ export default function Generator({
         createdAt: new Date().toISOString(),
         status: "submitting",
         imageUrl: null,
-        previewImageUrl: null,
         imageRenderFailed: false,
         error: null,
         syncWarning: null,
@@ -563,7 +554,7 @@ export default function Generator({
       } catch (error) {
         let recovered: GenerationRecord | null = null;
         try {
-          const history = await api.listHistory(Math.min(RECOVERY_HISTORY_LIMIT, 40), 0);
+          const history = await api.listHistory(RECOVERY_HISTORY_LIMIT, 0);
           const localCreatedAtMs = Date.parse(optimisticItem.createdAt);
           const targetPrompt = normalizePrompt(input.prompt);
           const candidates = history.items.filter((item) => {
@@ -608,7 +599,6 @@ export default function Generator({
                     jobId: recovered.id,
                     status: recovered.status,
                     imageUrl: recovered.imageUrl,
-                    previewImageUrl: recovered.previewImageUrl,
                     imageRenderFailed: false,
                     error: recovered.error,
                     createdAt: recovered.createdAt,
@@ -777,9 +767,7 @@ export default function Generator({
         if (!url) return null;
         return {
           id: item.localId,
-          url: item.previewImageUrl ?? url,
-          previewUrl: item.previewImageUrl ?? url,
-          fullUrl: item.imageUrl ?? url,
+          url,
           prompt: item.promptSnapshot,
           model: item.model,
           imageSize: item.imageSize,
@@ -904,7 +892,7 @@ export default function Generator({
                   className="relative aspect-square rounded-lg overflow-hidden border border-white/20 group"
                 >
                   <img
-                    src={img}
+                    src={resolveImagePreviewUrl(img, previewUrlByRef)}
                     alt={`参考图 ${i + 1}`}
                     className="w-full h-full object-cover"
                     referrerPolicy="no-referrer"
@@ -1090,7 +1078,7 @@ export default function Generator({
                           <div className="aspect-[3/4] relative overflow-hidden bg-[#0a0f14]">
                             {item.status === "succeeded" && item.imageUrl && !item.imageRenderFailed ? (
                               <img
-                                src={item.previewImageUrl ?? item.imageUrl}
+                                src={item.imageUrl}
                                 alt="已生成图片"
                                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02] cursor-zoom-in"
                                 referrerPolicy="no-referrer"

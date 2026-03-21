@@ -15,18 +15,6 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "."),
       },
     },
-    build: {
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            react: ["react", "react-dom"],
-            supabase: ["@supabase/supabase-js"],
-            query: ["@tanstack/react-query"],
-            icons: ["lucide-react"],
-          },
-        },
-      },
-    },
     server: {
       proxy: {
         "/api": {

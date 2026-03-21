@@ -287,39 +287,28 @@ export async function rechargeCredits(params: {
   };
 }
 
-export async function createSignedImageUrl(
-  path: string,
-  options?: { variant?: "original" | "preview" },
-): Promise<string> {
-  const variant = options?.variant ?? "original";
-  const transform =
-    variant === "preview"
-      ? {
-          width: 320,
-          quality: 45,
-          resize: "contain" as const,
-        }
-      : undefined;
-
+export async function createSignedImageUrl(path: string): Promise<string> {
   const { data, error } = await adminClient.storage
     .from(storageBucket)
-    .createSignedUrl(path, 60 * 60, transform ? { transform } : undefined);
+    .createSignedUrl(path, 60 * 60);
 
   if (error || !data?.signedUrl) {
     throw new Error(error?.message ?? "Failed to create signed URL");
   }
 
-  const publicSupabaseUrl = process.env.PUBLIC_SUPABASE_URL?.trim();
-  if (!publicSupabaseUrl) {
-    return data.signedUrl;
+  const rawUrl = data.signedUrl;
+  const publicBase = (process.env.SUPABASE_PUBLIC_URL ?? "https://db.xn--rhqy77ef4l.top").replace(/\/+$/, "");
+
+  if (/^https?:\/\//i.test(rawUrl)) {
+    try {
+      const url = new URL(rawUrl);
+      return `${publicBase}${url.pathname}${url.search}`;
+    } catch {
+      return rawUrl;
+    }
   }
 
-  try {
-    const publicBase = new URL(publicSupabaseUrl);
-    return data.signedUrl.replace(/^https?:\/\/[^/]+/i, publicBase.origin);
-  } catch {
-    return data.signedUrl;
-  }
+  return `${publicBase}${rawUrl.startsWith("/") ? rawUrl : `/${rawUrl}`}`;
 }
 
 export async function createCommercePack(params: {

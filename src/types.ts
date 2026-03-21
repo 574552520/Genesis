@@ -55,7 +55,6 @@ export interface GenerationJob {
   status: JobStatus;
   error: string | null;
   imageUrl: string | null;
-  previewImageUrl: string | null;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -71,7 +70,6 @@ export interface GenerationRecord {
   status: JobStatus;
   error: string | null;
   imageUrl: string | null;
-  previewImageUrl: string | null;
   createdAt: string;
   completedAt: string | null;
 }

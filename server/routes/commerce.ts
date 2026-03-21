@@ -219,6 +219,9 @@ function validateRequest(request: CommerceGenerateRequest): string | null {
     if (tryOnInput.productImages.length < 1) {
       return "Try-on requires at least one product image";
     }
+    if (request.editMode !== true && tryOnInput.sceneReferenceImages.length < 1) {
+      return "Try-on requires at least one scene reference image";
+    }
     return null;
   }
 

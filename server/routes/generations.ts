@@ -80,18 +80,15 @@ router.get("/jobs/:jobId", async (req, res) => {
     }
 
     let imageUrl: string | null = null;
-    let previewImageUrl: string | null = null;
     if (job.result_image_path) {
       try {
-        imageUrl = await createSignedImageUrl(job.result_image_path, { variant: "original" });
-        previewImageUrl = await createSignedImageUrl(job.result_image_path, { variant: "preview" });
+        imageUrl = await createSignedImageUrl(job.result_image_path);
       } catch (error) {
         console.warn("Signed URL generation warning (jobs route):", {
           jobId: job.id,
           message: error instanceof Error ? error.message : "Unknown signed URL error",
         });
         imageUrl = null;
-        previewImageUrl = null;
       }
     }
 
@@ -106,7 +103,6 @@ router.get("/jobs/:jobId", async (req, res) => {
         status: job.status,
         error: job.error,
         imageUrl,
-        previewImageUrl,
         createdAt: job.created_at,
         startedAt: job.started_at,
         completedAt: job.completed_at,
@@ -131,14 +127,11 @@ router.get("/history", async (req, res) => {
     const items = await Promise.all(
       jobs.map(async (job) => {
         let imageUrl: string | null = null;
-        let previewImageUrl: string | null = null;
         if (job.result_image_path) {
           try {
-            imageUrl = await createSignedImageUrl(job.result_image_path, { variant: "original" });
-            previewImageUrl = await createSignedImageUrl(job.result_image_path, { variant: "preview" });
+            imageUrl = await createSignedImageUrl(job.result_image_path);
           } catch {
             imageUrl = null;
-            previewImageUrl = null;
           }
         }
         return {
@@ -151,7 +144,6 @@ router.get("/history", async (req, res) => {
           status: job.status,
           error: job.error,
           imageUrl,
-          previewImageUrl,
           createdAt: job.created_at,
           completedAt: job.completed_at,
         };

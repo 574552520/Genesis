@@ -1,4 +1,5 @@
 import type { ImageModel } from "../types.js";
+import { downloadStorageReference } from "./storage.js";
 
 const apiDebugLog = process.env.API_DEBUG_LOG !== "0";
 
@@ -30,6 +31,19 @@ async function normalizeReferenceImageToPart(image: string): Promise<Record<stri
       inline_data: {
         data,
         mime_type: mimeType,
+      },
+    };
+  }
+
+  if (/^storage:\/\//i.test(image)) {
+    const downloaded = await downloadStorageReference(image);
+    if (!downloaded.mimeType.startsWith("image/")) {
+      throw new Error(`Unsupported storage reference content type: ${downloaded.mimeType || "unknown"}`);
+    }
+    return {
+      inline_data: {
+        data: downloaded.buffer.toString("base64"),
+        mime_type: downloaded.mimeType,
       },
     };
   }

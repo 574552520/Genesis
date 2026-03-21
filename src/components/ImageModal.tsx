@@ -9,6 +9,8 @@ import {
   X,
 } from "lucide-react";
 import { downloadImageFile } from "../lib/download";
+import { buildPreviewMapFromUploads, resolveImagePreviewUrl, type ImagePreviewMap } from "../lib/imageUploads";
+import { api } from "../lib/api";
 import type { GenerationLane, ImageModel } from "../types";
 
 const COMMON_ASPECT_RATIO_PRESETS = ["1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3"] as const;
@@ -99,9 +101,7 @@ export default function ImageModal({
   const hasGallery = galleryItems.length > 0;
   const safeIndex = hasGallery ? Math.max(0, Math.min(selectedIndex, galleryItems.length - 1)) : 0;
   const currentItem = hasGallery ? galleryItems[safeIndex] : null;
-  const currentPreviewUrl = currentItem?.previewUrl ?? currentItem?.url ?? url;
-  const currentFullUrl = currentItem?.fullUrl ?? currentItem?.url ?? url;
-  const currentUrl = currentFullUrl;
+  const currentUrl = currentItem?.url ?? url;
   const currentTitle = currentItem?.title ?? title;
   const currentPrompt = currentItem?.prompt ?? prompt;
   const currentMode = currentItem?.mode ?? mode;
@@ -116,6 +116,7 @@ export default function ImageModal({
   const [draftModel, setDraftModel] = useState<ImageModel>(currentModel);
   const [draftImageSize, setDraftImageSize] = useState(currentImageSize);
   const [draftAspectRatio, setDraftAspectRatio] = useState(currentAspectRatio);
+  const [previewUrlByRef, setPreviewUrlByRef] = useState<ImagePreviewMap>({});
   const [copyState, setCopyState] = useState<"idle" | "done" | "failed">("idle");
   const [downloadState, setDownloadState] = useState<"idle" | "downloading" | "failed">("idle");
   const aspectRatioOptions = useMemo(() => ASPECT_RATIO_PRESETS_BY_MODEL[draftModel], [draftModel]);
@@ -193,19 +194,12 @@ export default function ImageModal({
 
   const canRegenerate = showEditor ?? Boolean(onRegenerate);
 
-  const fileToDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error("读取图片失败，请重试"));
-      reader.readAsDataURL(file);
-    });
-
   const appendFiles = async (files: File[]) => {
     const imageFiles = files.filter((file) => file.type.startsWith("image/"));
     if (!imageFiles.length) return;
-    const urls = await Promise.all(imageFiles.map(fileToDataUrl));
-    setDraftImages((prev) => uniqueImages([...prev, ...urls]));
+    const uploaded = await api.uploadImages(imageFiles);
+    setPreviewUrlByRef((prev) => ({ ...prev, ...buildPreviewMapFromUploads(uploaded) }));
+    setDraftImages((prev) => uniqueImages([...prev, ...uploaded.map((item) => item.ref)]));
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -335,7 +329,7 @@ export default function ImageModal({
 
               <div className="relative flex h-full w-full min-h-0 min-w-0 items-center justify-center overflow-hidden rounded-2xl">
                 <img
-                  src={currentFullUrl}
+                  src={currentUrl}
                   alt={resolvedTitle}
                   className={`max-h-full max-w-full rounded-2xl object-contain shadow-2xl ${isPendingCurrent ? "blur-sm opacity-60" : ""}`}
                   referrerPolicy="no-referrer"
@@ -369,7 +363,7 @@ export default function ImageModal({
                         className={`relative h-20 w-16 shrink-0 overflow-hidden rounded-xl border transition-colors ${active ? "border-white/70" : "border-white/10 hover:border-white/30"}`}
                       >
                         <img
-                          src={item.previewUrl ?? item.url}
+                          src={item.url}
                           alt={item.title || `preview-${index + 1}`}
                           className={`h-full w-full object-cover ${item.status && item.status !== "succeeded" ? "blur-[1px] opacity-70" : ""}`}
                           referrerPolicy="no-referrer"
@@ -502,7 +496,7 @@ export default function ImageModal({
                         const isCurrentImage = image === currentUrl;
                         return (
                           <div key={`${image}-${index}`} className="relative overflow-hidden rounded-lg border border-white/10 bg-[#0a0f14]">
-                            <img src={image} alt={`reference-${index + 1}`} className="aspect-[3/4] w-full object-cover" loading="lazy" decoding="async" />
+                            <img src={resolveImagePreviewUrl(image, previewUrlByRef)} alt={`reference-${index + 1}`} className="aspect-[3/4] w-full object-cover" loading="lazy" decoding="async" />
                             <div className="absolute left-1 top-1 rounded border border-white/20 bg-black/70 px-1.5 py-0.5 text-[10px] text-white/90">
                               {isCurrentImage ? "当前图" : `参考图 ${index + 1}`}
                             </div>
@@ -530,7 +524,7 @@ export default function ImageModal({
                   type="button"
                   disabled={isSubmitting}
                   onClick={() => {
-                    const safeReferenceImages = uniqueImages([currentFullUrl, ...draftImages]);
+                    const safeReferenceImages = uniqueImages([currentUrl, ...draftImages]);
                     void onRegenerate?.({
                       prompt: draftPrompt,
                       referenceImages: safeReferenceImages,
