@@ -8,6 +8,7 @@ import type {
   ImageModel,
   UserProfile,
 } from "../types";
+import type { UploadedImageRef } from "./imageUploads";
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim() ?? "";
 const apiBaseNormalized = apiBase.replace(/\/+$/, "");
@@ -43,11 +44,12 @@ async function apiRequest<T>(
 ): Promise<T> {
   const requireAuth = options?.requireAuth ?? true;
   const headers = requireAuth ? await authHeaders() : {};
+  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   const response = await fetch(resolveApiUrl(path), {
     ...init,
     headers: {
       ...headers,
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(!isFormData && init?.body ? { "Content-Type": "application/json" } : {}),
       ...(init?.headers ?? {}),
     },
   });
@@ -154,6 +156,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     });
+  },
+
+  async uploadImages(files: File[]): Promise<UploadedImageRef[]> {
+    const maxFileSizeMb = 25;
+    const oversized = files.find((file) => file.size > maxFileSizeMb * 1024 * 1024);
+    if (oversized) {
+      throw new Error(`图片“${oversized.name}”超过 ${maxFileSizeMb}MB，请压缩后再上传`);
+    }
+
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append("images", file);
+    });
+    const data = await apiRequest<{ items: UploadedImageRef[] }>("/api/uploads/images", {
+      method: "POST",
+      body: formData,
+    });
+    return data.items;
   },
 
   async getCommercePack(packId: string): Promise<CommercePack> {
